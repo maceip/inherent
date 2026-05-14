@@ -1,0 +1,315 @@
+"""Training loop for the joint audio→intent classifier.
+
+CLI: `inherent-train --config configs/base.yaml`
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from dataclasses import asdict
+from itertools import cycle
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+
+from .. import HEAD_ORDER
+from ..config import Config
+from ..models import JointAudioIntentModel
+from .dataset import (
+    MelBatch,
+    MelManifestDataset,
+    collate_mel_batches,
+    compute_balanced_pos_weight,
+)
+
+
+def focal_bce_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    gamma: float = 2.0,
+    pos_weight: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Per-head focal binary cross-entropy. logits: [B, 13], targets: [B, 13] (float)."""
+    probs = torch.sigmoid(logits)
+    eps = 1e-7
+    pt = torch.where(targets > 0.5, probs, 1 - probs).clamp(min=eps, max=1 - eps)
+    focal_weight = (1 - pt) ** gamma
+    bce = nn.functional.binary_cross_entropy_with_logits(
+        logits, targets, pos_weight=pos_weight, reduction="none"
+    )
+    return (focal_weight * bce).mean()
+
+
+def train(
+    cfg: Config,
+    output_dir: Path,
+    *,
+    init_checkpoint: Path | None = None,
+) -> None:
+    """Train the joint audio conformer from precomputed mel manifests."""
+    _set_seed(cfg.training.seed)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "config.json").write_text(json.dumps(_config_dict(cfg), indent=2))
+
+    device = _select_device(cfg.training.device)
+    train_dataset = MelManifestDataset(
+        cfg.training.train_manifest,
+        mel_bins=cfg.model.mel_bins,
+        max_frames=cfg.model.max_frames,
+    )
+    eval_dataset = (
+        MelManifestDataset(
+            cfg.training.eval_manifest,
+            mel_bins=cfg.model.mel_bins,
+            max_frames=cfg.model.max_frames,
+        )
+        if cfg.training.eval_manifest
+        else None
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        num_workers=cfg.training.num_workers,
+        pin_memory=(device.type == "cuda"),
+        persistent_workers=(cfg.training.num_workers > 0),
+        collate_fn=collate_mel_batches,
+        drop_last=True,
+    )
+    if len(train_loader) == 0:
+        raise ValueError("train manifest does not contain enough samples for one full batch")
+
+    eval_loader = None
+    if eval_dataset is not None:
+        eval_loader = DataLoader(
+            eval_dataset,
+            batch_size=cfg.training.batch_size,
+            shuffle=False,
+            num_workers=cfg.training.num_workers,
+            pin_memory=(device.type == "cuda"),
+            persistent_workers=(cfg.training.num_workers > 0),
+            collate_fn=collate_mel_batches,
+            drop_last=False,
+        )
+
+    model = JointAudioIntentModel(cfg.model).to(device)
+    init_checkpoint = Path(init_checkpoint).expanduser() if init_checkpoint is not None else None
+    if init_checkpoint is not None:
+        _load_model_checkpoint(model, cfg, init_checkpoint)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=cfg.training.learning_rate,
+        weight_decay=cfg.training.weight_decay,
+    )
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: _lr_scale(step, cfg.training.warmup_steps, cfg.training.max_steps),
+    )
+    pos_weight = (
+        compute_balanced_pos_weight(train_dataset).to(device)
+        if cfg.training.class_weights == "balanced"
+        else None
+    )
+
+    best_eval_loss = float("inf")
+    loader_iter = cycle(train_loader)
+    for step in range(1, cfg.training.max_steps + 1):
+        model.train()
+        batch = _move_batch(next(loader_iter), device)
+        optimizer.zero_grad(set_to_none=True)
+        logits = model(batch.mel, lengths=batch.lengths)
+        loss = focal_bce_loss(
+            logits,
+            batch.targets,
+            gamma=cfg.training.focal_gamma,
+            pos_weight=pos_weight,
+        )
+        if not torch.isfinite(loss):
+            raise FloatingPointError(f"non-finite loss at step {step}: {loss.item()}")
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+        optimizer.step()
+        scheduler.step()
+
+        if step == 1 or step % cfg.training.save_every_steps == 0:
+            _save_checkpoint(
+                output_dir / "last.pt",
+                cfg,
+                model,
+                optimizer,
+                scheduler,
+                step,
+                loss.item(),
+                init_checkpoint=init_checkpoint,
+            )
+        if eval_loader is not None and (step == 1 or step % cfg.training.eval_every_steps == 0):
+            eval_loss = _evaluate_loss(model, eval_loader, cfg, device, pos_weight)
+            if eval_loss < best_eval_loss:
+                best_eval_loss = eval_loss
+                _save_checkpoint(
+                    output_dir / "best.pt",
+                    cfg,
+                    model,
+                    optimizer,
+                    scheduler,
+                    step,
+                    loss.item(),
+                    eval_loss=eval_loss,
+                    init_checkpoint=init_checkpoint,
+                )
+
+    _save_checkpoint(
+        output_dir / "last.pt",
+        cfg,
+        model,
+        optimizer,
+        scheduler,
+        cfg.training.max_steps,
+        loss.item(),
+        init_checkpoint=init_checkpoint,
+    )
+
+
+def _load_model_checkpoint(model: JointAudioIntentModel, cfg: Config, checkpoint_path: Path) -> None:
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"init checkpoint not found: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    if tuple(checkpoint.get("head_order", ())) != HEAD_ORDER:
+        raise ValueError("init checkpoint head_order does not match inherent.HEAD_ORDER")
+    if checkpoint.get("config", {}).get("model") != asdict(cfg.model):
+        raise ValueError("init checkpoint model config does not match current config")
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+
+def _evaluate_loss(
+    model: JointAudioIntentModel,
+    loader: DataLoader,
+    cfg: Config,
+    device: torch.device,
+    pos_weight: torch.Tensor | None,
+) -> float:
+    model.eval()
+    total_loss = 0.0
+    total_samples = 0
+    with torch.no_grad():
+        for batch in loader:
+            moved = _move_batch(batch, device)
+            logits = model(moved.mel, lengths=moved.lengths)
+            loss = focal_bce_loss(
+                logits,
+                moved.targets,
+                gamma=cfg.training.focal_gamma,
+                pos_weight=pos_weight,
+            )
+            if not torch.isfinite(loss):
+                raise FloatingPointError(f"non-finite eval loss: {loss.item()}")
+            batch_size = moved.mel.size(0)
+            total_loss += loss.item() * batch_size
+            total_samples += batch_size
+    if total_samples == 0:
+        raise ValueError("eval manifest produced zero samples")
+    return total_loss / total_samples
+
+
+def _move_batch(batch: MelBatch, device: torch.device) -> MelBatch:
+    return MelBatch(
+        mel=batch.mel.to(device, non_blocking=True),
+        targets=batch.targets.to(device, non_blocking=True),
+        lengths=batch.lengths.to(device, non_blocking=True),
+    )
+
+
+def _select_device(name: str) -> torch.device:
+    if name == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("training.device is 'cuda' but CUDA is not available")
+        return torch.device("cuda")
+    if name == "mps":
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("training.device is 'mps' but MPS is not available")
+        return torch.device("mps")
+    raise ValueError(f"unsupported training.device {name!r}")
+
+
+def _lr_scale(step: int, warmup_steps: int, max_steps: int) -> float:
+    if warmup_steps and step < warmup_steps:
+        return max(step, 1) / warmup_steps
+    remaining = max(max_steps - step, 0)
+    decay_steps = max(max_steps - warmup_steps, 1)
+    return max(remaining / decay_steps, 0.0)
+
+
+def _save_checkpoint(
+    path: Path,
+    cfg: Config,
+    model: JointAudioIntentModel,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    step: int,
+    train_loss: float,
+    *,
+    eval_loss: float | None = None,
+    init_checkpoint: Path | None = None,
+) -> None:
+    checkpoint = {
+        "step": step,
+        "train_loss": train_loss,
+        "eval_loss": eval_loss,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "config": _config_dict(cfg),
+        "head_order": list(HEAD_ORDER),
+        "init_checkpoint": None if init_checkpoint is None else str(init_checkpoint),
+    }
+    torch.save(checkpoint, path)
+
+
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _config_dict(cfg: Config) -> dict:
+    return {
+        "model": asdict(cfg.model),
+        "data": asdict(cfg.data),
+        "training": asdict(cfg.training),
+        "export": asdict(cfg.export),
+        "eval": asdict(cfg.eval),
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="configs/base.yaml")
+    parser.add_argument("--output-dir", default="artifacts/run")
+    parser.add_argument("--train-manifest")
+    parser.add_argument("--eval-manifest")
+    parser.add_argument("--device", choices=["cuda", "mps"])
+    parser.add_argument("--max-steps", type=int)
+    args = parser.parse_args()
+
+    cfg = Config.load(args.config)
+    if args.train_manifest is not None:
+        cfg.training.train_manifest = args.train_manifest
+    if args.eval_manifest is not None:
+        cfg.training.eval_manifest = args.eval_manifest
+    if args.device is not None:
+        cfg.training.device = args.device
+    if args.max_steps is not None:
+        cfg.training.max_steps = args.max_steps
+    cfg.training.__post_init__()
+    train(cfg, Path(args.output_dir))
+
+
+if __name__ == "__main__":
+    main()

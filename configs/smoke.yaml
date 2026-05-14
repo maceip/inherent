@@ -1,0 +1,72 @@
+model:
+  backbone: small_conformer
+  num_heads: 13
+  hidden_size: 32
+  num_layers: 0
+  num_attention_heads: 4
+  conv_kernel_size: 7
+  mel_bins: 128
+  max_frames: 3000
+
+data:
+  sample_rate: 16000
+  hop_ms: 20
+  mel_bins: 128
+  max_seconds: 60
+  directedness:
+    positives: []
+    negatives: []
+    positive_manifests: []
+    negative_manifests: []
+    labeled_manifests: []
+    max_public_samples_per_source: 100
+    noise_mix: []
+    snr_db_range: [0, 25]
+  intents:
+    public_sources: []
+    recorded: []
+    synthetic_manifests: []
+    public: {}
+    synthetic: {}
+
+training:
+  batch_size: 2
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-2
+  warmup_steps: 0
+  max_steps: 4
+  eval_every_steps: 2
+  save_every_steps: 2
+  loss: focal_bce
+  focal_gamma: 2.0
+  class_weights: balanced
+  train_manifest: data/smoke_train_manifest.csv
+  eval_manifest: data/smoke_train_manifest.csv
+  num_workers: 0
+  device: mps
+  seed: 1337
+
+export:
+  backend: tflite
+  delegates: [cpu]
+  quantization: int8
+  representative_dataset_size: 4
+  target_size_mb: 50
+  output_path: artifacts/smoke/inherent.tflite
+  metadata_path: artifacts/smoke/inherent.metadata.json
+  onnx_path: artifacts/smoke/inherent.onnx
+  onnx_metadata_path: artifacts/smoke/inherent.onnx.metadata.json
+  mlx_dir: artifacts/smoke/mlx
+  litertlm_path: artifacts/smoke/inherent.litertlm
+  onnx_opset: 17
+  onnx_sample_frames: 50
+  onnx_static_frames: 50
+  strict_tensor_names: false
+  parity_atol: 1.0e-4
+
+eval:
+  held_out_audio_dir: data/eval_recorded
+  metrics: [auc_per_head, eer_per_head, false_positive_at_recall_95]
+  pass_threshold:
+    is_interesting: { auc: 0.85, eer: 0.15 }
+    intent_heads: { mean_auc: 0.80, min_auc: 0.70 }

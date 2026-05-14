@@ -1,0 +1,82 @@
+model:
+  backbone: small_conformer
+  num_heads: 13
+  hidden_size: 384
+  num_layers: 8
+  num_attention_heads: 6
+  conv_kernel_size: 31
+  mel_bins: 128
+  max_frames: 3000
+
+data:
+  sample_rate: 16000
+  hop_ms: 20
+  mel_bins: 128
+  max_seconds: 60
+  directedness:
+    positives: [slurp, speech_massive]
+    negatives: [ami, speech_commands, fsd50k]
+    positive_manifests: []
+    negative_manifests: []
+    labeled_manifests: [recorded/labels.csv]
+    max_public_samples_per_source: 50000
+    noise_mix: [musan, demand]
+    snr_db_range: [0, 25]
+  intents:
+    public_sources: [slurp, speech_massive]
+    recorded: []
+    synthetic_manifests: [synthetic_manifest.snapshot.csv]
+    public:
+      add_to_list: [slurp.lists_*, speech_massive.lists_createoradd]
+      term_search: [slurp.qa_*, speech_massive.general_quirky]
+      calendar_event: [slurp.calendar_*]
+      start_timer: [slurp.alarm_set, speech_massive.alarm_set]
+    synthetic:
+      photo_query: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      create_doc: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      deep_research: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      insight: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      browsing_agent: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      calling_agent: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+
+training:
+  batch_size: 16
+  learning_rate: 2.0e-4
+  weight_decay: 1.0e-2
+  warmup_steps: 2000
+  max_steps: 100000
+  eval_every_steps: 2000
+  save_every_steps: 2000
+  loss: focal_bce
+  focal_gamma: 2.0
+  class_weights: balanced
+  train_manifest: data/high_performance_train_manifest.csv
+  eval_manifest: data/high_performance_eval_manifest.csv
+  num_workers: 4
+  device: mps
+  seed: 1337
+
+export:
+  backend: all
+  delegates: [cpu, gpu, tpu]
+  quantization: int8
+  representative_dataset_size: 1000
+  target_size_mb: 50
+  output_path: artifacts/high_performance/inherent.tflite
+  metadata_path: artifacts/high_performance/inherent.metadata.json
+  onnx_path: artifacts/high_performance/inherent.onnx
+  onnx_metadata_path: artifacts/high_performance/inherent.onnx.metadata.json
+  mlx_dir: artifacts/high_performance/mlx
+  litertlm_path: artifacts/high_performance/inherent.litertlm
+  onnx_opset: 17
+  onnx_sample_frames: 50
+  onnx_static_frames: 50
+  strict_tensor_names: false
+  parity_atol: 1.0e-4
+
+eval:
+  held_out_audio_dir: data/eval_recorded
+  metrics: [auc_per_head, eer_per_head, false_positive_at_recall_95]
+  pass_threshold:
+    is_interesting: { auc: 0.90, eer: 0.10 }
+    intent_heads: { mean_auc: 0.86, min_auc: 0.78, max_fpr_at_recall_95: 0.15 }
