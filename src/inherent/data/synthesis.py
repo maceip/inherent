@@ -665,10 +665,15 @@ class _OpenF5Runtime:
                 mel_spec_type=self.mel_spec_type,
                 progress=None,
                 device=self.device,
+                nfe_step=16,
             )
         )
         generated_wave, final_sample_rate, _spectrogram = result
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if int(final_sample_rate) != SAMPLE_RATE:
+            from scipy.signal import resample_poly
+            generated_wave = resample_poly(generated_wave, SAMPLE_RATE, int(final_sample_rate)).astype(generated_wave.dtype)
+            final_sample_rate = SAMPLE_RATE
         sf.write(str(output_path), generated_wave, final_sample_rate)
         remove_silence_for_generated_wav(str(output_path))
 

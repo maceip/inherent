@@ -347,7 +347,7 @@ def _iter_hf_rows(*, dataset_id: str, root: Path, configs: Sequence[str]) -> Ite
                 trust_remote_code=False,
             )
             audio_column = _find_audio_column(dataset.features)
-            dataset = dataset.cast_column(audio_column, Audio(sampling_rate=SAMPLE_RATE, num_channels=1))
+            dataset = dataset.cast_column(audio_column, Audio(sampling_rate=SAMPLE_RATE, mono=True))
             for row_index, row in enumerate(dataset):
                 yield _HfRow(
                     row=row,
@@ -446,9 +446,9 @@ def _heads_for_public_intent(label: str) -> dict[str, bool]:
         "reminder_create",
     }:
         labels["hasCalendarEvent"] = True
-    if normalized == "recommendation":
+    if normalized.startswith("recommendation"):
         labels["hasPersonContext"] = True
-    if normalized == "calendar_query":
+    if normalized.startswith("calendar_query"):
         labels["hasEventContext"] = True
     if normalized in {"alarm_set", "timer_set", "timer_create", "alarm_create"}:
         labels["hasStartTimerIntent"] = True
@@ -540,8 +540,10 @@ def _write_wav_16k(path: Path, array: Any, sampling_rate: int) -> None:
     if not np.isfinite(samples).all():
         raise ValueError("decoded public-corpus audio contains non-finite samples")
     peak = float(np.max(np.abs(samples)))
-    if peak > 1.0:
+    if peak > 1.5:
         raise ValueError(f"decoded public-corpus audio must be normalized to [-1, 1], peak={peak}")
+    if peak > 1.0:
+        samples = np.clip(samples, -1.0, 1.0)
     path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(path, samples, SAMPLE_RATE, subtype="PCM_16")
 

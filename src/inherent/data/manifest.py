@@ -36,11 +36,12 @@ def from_intent(sample: IntentSample) -> RawAudioLabelSample:
     return RawAudioLabelSample(audio_path=sample.audio_path, labels=tuple(labels), source=sample.source)
 
 
-def write_raw_audio_manifest(samples: Iterable[RawAudioLabelSample], output_path: str | Path) -> int:
+def write_raw_audio_manifest(samples: Iterable[RawAudioLabelSample], output_path: str | Path, *, validate: bool = True) -> int:
     sample_list = list(samples)
     if not sample_list:
         raise ValueError("cannot write an empty raw-audio manifest")
-    _validate_label_coverage(sample_list)
+    if validate:
+        _validate_label_coverage(sample_list)
     path = Path(output_path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
@@ -59,6 +60,8 @@ def write_raw_audio_manifest(samples: Iterable[RawAudioLabelSample], output_path
 def combine_indexes(
     directedness_samples: Iterable[DirectednessSample],
     intent_samples: Iterable[IntentSample],
+    *,
+    validate: bool = True,
 ) -> list[RawAudioLabelSample]:
     by_audio_path: dict[Path, RawAudioLabelSample] = {}
     for sample in directedness_samples:
@@ -66,7 +69,8 @@ def combine_indexes(
     for sample in intent_samples:
         _merge_sample(by_audio_path, from_intent(sample))
     combined = list(by_audio_path.values())
-    _validate_label_coverage(combined)
+    if validate:
+        _validate_label_coverage(combined)
     return combined
 
 

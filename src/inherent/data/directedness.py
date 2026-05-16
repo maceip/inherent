@@ -330,7 +330,7 @@ def _iter_hf_audio_rows(
 
     root.mkdir(parents=True, exist_ok=True)
     cache_dir = root / ".hf_cache"
-    available_configs = set(get_dataset_config_names(spec.dataset_id))
+    available_configs = set(get_dataset_config_names(spec.dataset_id, trust_remote_code=True))
     selected_configs = tuple(config for config in spec.configs if config in available_configs)
     if not selected_configs:
         raise ValueError(
@@ -339,7 +339,7 @@ def _iter_hf_audio_rows(
 
     yielded = 0
     for config_name in selected_configs:
-        available_splits = tuple(get_dataset_split_names(spec.dataset_id, config_name))
+        available_splits = tuple(get_dataset_split_names(spec.dataset_id, config_name, trust_remote_code=True))
         selected_splits = tuple(split for split in spec.splits if split in available_splits) or available_splits
         for split in selected_splits:
             dataset = load_dataset(
@@ -350,7 +350,7 @@ def _iter_hf_audio_rows(
                 trust_remote_code=True,
             )
             audio_column = _find_audio_column(dataset.features)
-            dataset = dataset.cast_column(audio_column, Audio(sampling_rate=SAMPLE_RATE, num_channels=1))
+            dataset = dataset.cast_column(audio_column, Audio(sampling_rate=SAMPLE_RATE, mono=True))
             for row_index, row in enumerate(dataset):
                 yield _HfAudioRow(
                     row=row,

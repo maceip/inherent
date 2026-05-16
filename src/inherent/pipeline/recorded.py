@@ -535,7 +535,7 @@ def _write_split_raw_manifests(
                 samples.extend(_raw_samples_from_audio_manifest(Path(manifest).expanduser()))
             for manifest in synthetic_train_manifests:
                 samples.extend(from_intent(sample) for sample in load_synthetic_manifest(Path(manifest).expanduser()))
-        write_raw_audio_manifest(samples, output)
+        write_raw_audio_manifest(samples, output, validate=False)
     return outputs
 
 

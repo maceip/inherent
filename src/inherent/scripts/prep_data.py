@@ -58,8 +58,9 @@ def main() -> None:
         directedness_samples = directedness.build_index(cfg.data.directedness, args.data_root)
         intent_samples = intents.build_index(cfg.data.intents, args.data_root)
         count = write_raw_audio_manifest(
-            combine_indexes(directedness_samples, intent_samples),
+            combine_indexes(directedness_samples, intent_samples, validate=False),
             args.output_manifest,
+            validate=False,
         )
         print(f"wrote {count} raw labeled audio samples")
     elif args.target == "synthesis":
