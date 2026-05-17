@@ -137,6 +137,15 @@ PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.
 To verify the pipeline on the bundled example, point `--labels` at
 `data/model_group_001_labels.csv` and add `--max-steps 1`.
 
+### Approximate wall time for a production run
+
+Numbers from a real v0 run (146k mels, 100k steps, single L4 GPU box).
+
+| Stage | Wall time |
+|---|---|
+| Mel materialization (146,032 mels through `audio_frontend.tflite`, CPU-bound) | ~115 min |
+| Model training (100,000 steps, batch 32, L4 GPU, `num_workers=0`) | ~7h |
+
 ## Export an existing checkpoint
 
 ```bash
