@@ -14,8 +14,14 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.multiprocessing as _mp
 import torch.nn as nn
 from torch.utils.data import DataLoader
+
+try:
+    _mp.set_sharing_strategy("file_system")
+except RuntimeError:
+    pass
 
 from .. import HEAD_ORDER
 from ..config import Config
@@ -76,7 +82,7 @@ def train(
         batch_size=cfg.training.batch_size,
         shuffle=True,
         num_workers=cfg.training.num_workers,
-        pin_memory=(device.type == "cuda"),
+        pin_memory=False,
         persistent_workers=(cfg.training.num_workers > 0),
         collate_fn=collate_mel_batches,
         drop_last=True,
@@ -91,7 +97,7 @@ def train(
             batch_size=cfg.training.batch_size,
             shuffle=False,
             num_workers=cfg.training.num_workers,
-            pin_memory=(device.type == "cuda"),
+            pin_memory=False,
             persistent_workers=(cfg.training.num_workers > 0),
             collate_fn=collate_mel_batches,
             drop_last=False,
