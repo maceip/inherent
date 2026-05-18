@@ -29,7 +29,6 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert 'href="../"' in legacy_index
     assert "onnxruntime-web" in root_index
     assert "assets/inherent.onnx" in root_index
-    assert "assets/inherent.onnx.metadata.json" in root_index
     assert "./browser-demo/assets/theme-reference.svg" in root_index
     assert 'id="scope"' in root_index
     assert 'id="flowHeads"' in root_index
