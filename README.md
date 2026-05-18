@@ -282,12 +282,13 @@ equivalent mel implementation (librosa, torchaudio, a mobile DSP block) as
 long as the output is `[T, 128]` float32 with the same bin and hop layout.
 
 On Android or iOS, load `inherent.tflite` with the standard LiteRT or TFLite
-interpreter: the input tensor is `mel_spectrogram`, the output is
-`intent_output`, and the public tensors are `[1, 3000, 128]` float32 in and
-`[1, 13]` float32 out. MLX users load the package under `<output-dir>/mlx/`. The
-metadata sidecar (`inherent.metadata.json`) carries the head order and
-default thresholds so app code can pin to them at load time instead of
-hard-coding.
+interpreter. The logical input is `mel_spectrogram` and the logical output is
+`intent_output`, but app code should bind the actual TFLite tensors from
+`runtime_tensor_contract` in `inherent.metadata.json` because converters may
+rename them. The public tensors are `[1, 3000, 128]` float32 in and `[1, 13]`
+float32 out. MLX users load the package under `<output-dir>/mlx/`. The metadata
+sidecar carries the head order and default thresholds so app code can pin to
+them at load time instead of hard-coding.
 
 The full integration contract (tensor names, shapes, head order, threshold
 keys, versioning rules) is at `contracts/runtime_contract.md`.

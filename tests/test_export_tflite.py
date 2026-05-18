@@ -27,9 +27,11 @@ def _tflite_io(
     output_dtype="float32",
 ):
     return {
+        "input_index": 0,
         "input_name": "serving_default_mel_spectrogram:0",
         "input_shape": list(input_shape),
         "input_dtype": input_dtype,
+        "output_index": 42,
         "output_name": "StatefulPartitionedCall:0",
         "output_shape": list(output_shape),
         "output_dtype": output_dtype,
@@ -62,6 +64,12 @@ def test_write_metadata_writes_contract_fields(tmp_path, monkeypatch):
     assert tuple(data["head_order"]) == HEAD_ORDER
     assert tuple(data["threshold_keys_in_order"]) == THRESHOLD_KEYS
     assert data["tflite_size_bytes"] == len(b"tflite")
+    assert data["runtime_tensor_contract"]["selection"] == "single_input_single_output_index"
+    assert data["runtime_tensor_contract"]["input"]["logical_name"] == "mel_spectrogram"
+    assert data["runtime_tensor_contract"]["input"]["index"] == 0
+    assert data["runtime_tensor_contract"]["output"]["logical_name"] == "intent_output"
+    assert data["runtime_tensor_contract"]["output"]["actual_name"] == "StatefulPartitionedCall:0"
+    assert data["runtime_tensor_contract"]["output"]["index"] == 42
     assert data["tflite_io"]["input_shape"] == [1, 3000, 128]
     assert data["tflite_io"]["output_shape"] == [1, 13]
     assert ":" in data["training_hash"]
