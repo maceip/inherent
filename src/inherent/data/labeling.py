@@ -26,6 +26,14 @@ class ValidationIssue:
     message: str
 
 
+@dataclass(frozen=True)
+class _GroupSummary:
+    key: str
+    row_count: int
+    positives: frozenset[str]
+    negatives: frozenset[str]
+
+
 def write_label_template(path: str | Path) -> Path:
     """Write an empty CSV template for human labeling."""
     output = Path(path).expanduser()
@@ -136,9 +144,11 @@ def split_label_manifest(
     for row_number, row in rows:
         grouped[_group_key(row, row_number)].append((row_number, row))
 
-    keys = sorted(grouped)
-    random.Random(seed).shuffle(keys)
-    assignments = _assign_groups(keys, train_ratio, eval_ratio)
+    summaries = {
+        key: _summarize_group(key, rows)
+        for key, rows in grouped.items()
+    }
+    assignments = _assign_groups(summaries, train_ratio, eval_ratio, seed)
     split_dir.mkdir(parents=True, exist_ok=True)
     writers: dict[str, csv.DictWriter] = {}
     files = {}
@@ -400,25 +410,195 @@ def _group_key(row: dict[str, str], row_number: int) -> str:
     return f"row={row_number}"
 
 
-def _assign_groups(keys: list[str], train_ratio: float, eval_ratio: float) -> dict[str, str]:
-    total = len(keys)
-    train_cut = int(round(total * train_ratio))
-    eval_cut = train_cut + int(round(total * eval_ratio))
-    assignments = {}
-    for index, key in enumerate(keys):
-        if index < train_cut:
-            split = "train"
-        elif index < eval_cut:
-            split = "eval"
-        else:
-            split = "test"
+def _summarize_group(
+    key: str,
+    rows: list[tuple[int, dict[str, str]]],
+) -> _GroupSummary:
+    positives: set[str] = set()
+    negatives: set[str] = set()
+    for _, row in rows:
+        for head in HEAD_ORDER:
+            value = row[head].strip()
+            if value == "1":
+                positives.add(head)
+            elif value == "0":
+                negatives.add(head)
+            else:
+                raise ValueError(f"group {key} has invalid {head} label {value!r}")
+    return _GroupSummary(
+        key=key,
+        row_count=len(rows),
+        positives=frozenset(positives),
+        negatives=frozenset(negatives),
+    )
+
+
+def _assign_groups(
+    summaries: dict[str, _GroupSummary],
+    train_ratio: float,
+    eval_ratio: float,
+    seed: int,
+) -> dict[str, str]:
+    keys = sorted(summaries)
+    rng = random.Random(seed)
+    shuffled = list(keys)
+    rng.shuffle(shuffled)
+    random_order = {key: index for index, key in enumerate(shuffled)}
+    targets = _target_rows(summaries, train_ratio, eval_ratio)
+    assignments: dict[str, str] = {}
+    rows_by_split = {split: 0 for split in ("train", "eval", "test")}
+    coverage = {split: set() for split in ("train", "eval", "test")}
+
+    def assign(key: str, split: str) -> None:
         assignments[key] = split
-    if total >= 3:
-        for split in ("train", "eval", "test"):
-            if split not in assignments.values():
-                donor_key = keys[-1]
-                assignments[donor_key] = split
+        rows_by_split[split] += summaries[key].row_count
+        coverage[split].update(_group_requirements(summaries[key]))
+
+    requirements = _sorted_requirements(summaries)
+    for requirement in requirements:
+        for split in _splits_by_need(requirement, coverage, rows_by_split, targets):
+            if requirement in coverage[split]:
+                continue
+            candidate = _best_unassigned_group(
+                requirement,
+                split,
+                summaries,
+                assignments,
+                coverage,
+                rows_by_split,
+                targets,
+                random_order,
+            )
+            if candidate is not None:
+                assign(candidate, split)
+
+    for key in sorted(
+        (key for key in keys if key not in assignments),
+        key=lambda item: (-summaries[item].row_count, random_order[item]),
+    ):
+        split = max(
+            ("train", "eval", "test"),
+            key=lambda item: (
+                targets[item] - rows_by_split[item],
+                -rows_by_split[item],
+                -("train", "eval", "test").index(item),
+            ),
+        )
+        assign(key, split)
+
+    _ensure_non_empty_splits(assignments, summaries)
     return assignments
+
+
+def _target_rows(
+    summaries: dict[str, _GroupSummary],
+    train_ratio: float,
+    eval_ratio: float,
+) -> dict[str, int]:
+    total_rows = sum(summary.row_count for summary in summaries.values())
+    train_rows = int(round(total_rows * train_ratio))
+    eval_rows = int(round(total_rows * eval_ratio))
+    return {
+        "train": train_rows,
+        "eval": eval_rows,
+        "test": max(0, total_rows - train_rows - eval_rows),
+    }
+
+
+def _group_requirements(summary: _GroupSummary) -> set[tuple[str, str]]:
+    requirements = {(head, "positive") for head in summary.positives}
+    requirements.update((head, "negative") for head in summary.negatives)
+    return requirements
+
+
+def _sorted_requirements(summaries: dict[str, _GroupSummary]) -> list[tuple[str, str]]:
+    candidates = {
+        (head, kind): sum(
+            1
+            for summary in summaries.values()
+            if head in (summary.positives if kind == "positive" else summary.negatives)
+        )
+        for head in HEAD_ORDER
+        for kind in ("positive", "negative")
+    }
+    head_order = {head: index for index, head in enumerate(HEAD_ORDER)}
+    return sorted(
+        candidates,
+        key=lambda item: (
+            candidates[item],
+            head_order[item[0]],
+            0 if item[1] == "positive" else 1,
+        ),
+    )
+
+
+def _splits_by_need(
+    requirement: tuple[str, str],
+    coverage: dict[str, set[tuple[str, str]]],
+    rows_by_split: dict[str, int],
+    targets: dict[str, int],
+) -> list[str]:
+    return sorted(
+        ("train", "eval", "test"),
+        key=lambda split: (
+            requirement in coverage[split],
+            -(targets[split] - rows_by_split[split]),
+            rows_by_split[split],
+            ("train", "eval", "test").index(split),
+        ),
+    )
+
+
+def _best_unassigned_group(
+    requirement: tuple[str, str],
+    split: str,
+    summaries: dict[str, _GroupSummary],
+    assignments: dict[str, str],
+    coverage: dict[str, set[tuple[str, str]]],
+    rows_by_split: dict[str, int],
+    targets: dict[str, int],
+    random_order: dict[str, int],
+) -> str | None:
+    candidates = [
+        key
+        for key, summary in summaries.items()
+        if key not in assignments and requirement in _group_requirements(summary)
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda key: (
+            len(_group_requirements(summaries[key]) - coverage[split]),
+            targets[split] - rows_by_split[split],
+            -summaries[key].row_count,
+            -random_order[key],
+        ),
+    )
+
+
+def _ensure_non_empty_splits(
+    assignments: dict[str, str],
+    summaries: dict[str, _GroupSummary],
+) -> None:
+    if len(assignments) < 3:
+        return
+    for split in ("train", "eval", "test"):
+        if split in assignments.values():
+            continue
+        donor_split = max(
+            ("train", "eval", "test"),
+            key=lambda item: sum(
+                summaries[key].row_count
+                for key, assigned_split in assignments.items()
+                if assigned_split == item
+            ),
+        )
+        donor_keys = [key for key, assigned_split in assignments.items() if assigned_split == donor_split]
+        if len(donor_keys) <= 1:
+            continue
+        donor_key = min(donor_keys, key=lambda key: summaries[key].row_count)
+        assignments[donor_key] = split
 
 
 def copy_manifest_audio(input_manifest: str | Path, output_dir: str | Path) -> int:

@@ -129,6 +129,38 @@ def test_split_label_coverage_requires_each_head_in_each_split(tmp_path):
     assert any(issue["head"] == "hasStartTimerIntent" for issue in report["issues"])
 
 
+def test_split_label_manifest_stratifies_label_coverage_when_feasible(tmp_path):
+    rows = []
+    for replica in range(3):
+        for head in HEAD_ORDER[1:]:
+            rows.append(
+                label_row(
+                    tmp_path / f"{replica}_{head}.wav",
+                    speaker_id=f"{replica}-{head}",
+                    session_id="1",
+                    positive_head=head,
+                )
+            )
+        rows.append(
+            label_row(
+                tmp_path / f"{replica}_negative.wav",
+                speaker_id=f"{replica}-negative",
+                session_id="1",
+            )
+        )
+    manifest = tmp_path / "labels.csv"
+    write_label_manifest(manifest, rows)
+
+    split_label_manifest(manifest, tmp_path / "splits", seed=0)
+
+    validate_split_label_coverage(
+        {
+            split: tmp_path / "splits" / f"{split}_manifest.csv"
+            for split in ("train", "eval", "test")
+        }
+    )
+
+
 def test_recorded_loaders_accept_collection_metadata(tmp_path):
     wav = tmp_path / "a.wav"
     write_wav(wav)
