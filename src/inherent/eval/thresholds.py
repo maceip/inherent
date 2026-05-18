@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from .. import HEAD_ORDER, THRESHOLD_KEYS
+from .. import DEFAULT_THRESHOLDS_BY_KEY, HEAD_ORDER, THRESHOLD_KEYS
 from .evaluate import _runtime_static_for_checkpoint
 from .parity import _labels, _score_checkpoint, _score_tflite
 
@@ -96,6 +96,34 @@ def _calibrate_head(scores: np.ndarray, labels: np.ndarray, *, min_recall: float
     return best
 
 
+def apply_thresholds_to_metadata(
+    metadata: dict[str, Any],
+    threshold_report: dict[str, Any],
+) -> dict[str, Any]:
+    thresholds = threshold_report.get("thresholds_by_key")
+    if not isinstance(thresholds, dict):
+        raise ValueError("threshold report missing thresholds_by_key")
+    missing = set(THRESHOLD_KEYS) - set(thresholds)
+    unexpected = set(thresholds) - set(THRESHOLD_KEYS)
+    if missing or unexpected:
+        raise ValueError(f"threshold keys mismatch: missing={sorted(missing)}, unexpected={sorted(unexpected)}")
+    if threshold_report.get("skipped_heads"):
+        raise ValueError("metadata threshold update requires calibrated thresholds for every head")
+    normalized = {key: float(thresholds[key]) for key in THRESHOLD_KEYS}
+    if normalized == DEFAULT_THRESHOLDS_BY_KEY:
+        raise ValueError("calibrated thresholds equal seed defaults; refusing release metadata update")
+
+    updated = dict(metadata)
+    updated["default_thresholds"] = normalized
+    updated["threshold_calibration"] = {
+        "mel_manifest": threshold_report.get("mel_manifest"),
+        "rows": threshold_report.get("rows"),
+        "score_source": threshold_report.get("score_source"),
+        "min_recall": threshold_report.get("min_recall"),
+    }
+    return updated
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     artifact = parser.add_mutually_exclusive_group(required=True)
@@ -110,6 +138,8 @@ def main() -> None:
     padding.add_argument("--runtime-static", action="store_true")
     padding.add_argument("--dynamic-padding", action="store_true")
     parser.add_argument("--json-out", type=Path)
+    parser.add_argument("--metadata-in", type=Path)
+    parser.add_argument("--metadata-out", type=Path)
     args = parser.parse_args()
 
     manifest = args.mel_manifest.expanduser()
@@ -148,6 +178,13 @@ def main() -> None:
     if args.json_out is not None:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         args.json_out.write_text(text + "\n")
+    if args.metadata_in is not None:
+        metadata_in = args.metadata_in.expanduser()
+        metadata_out = args.metadata_out.expanduser() if args.metadata_out is not None else metadata_in
+        metadata = json.loads(metadata_in.read_text())
+        updated = apply_thresholds_to_metadata(metadata, report)
+        metadata_out.parent.mkdir(parents=True, exist_ok=True)
+        metadata_out.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\n")
     print(text)
 
 

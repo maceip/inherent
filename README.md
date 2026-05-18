@@ -154,7 +154,8 @@ need `--allow-missing-heads` and should not be used for release thresholds.
 PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.thresholds \
   --tflite-model artifacts/quality/inherent.tflite \
   --mel-manifest data/quality_eval_manifest.csv \
-  --json-out artifacts/quality/reports/thresholds.json
+  --json-out artifacts/quality/reports/thresholds.json \
+  --metadata-in artifacts/quality/inherent.metadata.json
 ```
 
 ## Install

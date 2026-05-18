@@ -2,10 +2,12 @@ import pytest
 import numpy as np
 
 from inherent import HEAD_ORDER
+from inherent import DEFAULT_THRESHOLDS_BY_KEY
 from inherent import THRESHOLD_KEYS
 from inherent.eval.evaluate import evaluate_gates
 from inherent.eval.evaluate import _runtime_static_for_checkpoint
 from inherent.eval.thresholds import calibrate_thresholds
+from inherent.eval.thresholds import apply_thresholds_to_metadata
 
 
 def metrics(auc=0.9, eer=0.05, fpr=0.05):
@@ -81,3 +83,36 @@ def test_calibrate_thresholds_can_skip_heads_missing_label_coverage():
 
     assert "isInteresting" in report["heads"]
     assert "hasAddToListIntent" in report["skipped_heads"]
+
+
+def test_apply_thresholds_to_metadata_replaces_seed_defaults():
+    thresholds = {key: 0.25 for key in THRESHOLD_KEYS}
+    report = {
+        "thresholds_by_key": thresholds,
+        "skipped_heads": {},
+        "mel_manifest": "eval.csv",
+        "rows": 10,
+        "score_source": "tflite_runtime_static",
+        "min_recall": 0.95,
+    }
+
+    updated = apply_thresholds_to_metadata({"default_thresholds": DEFAULT_THRESHOLDS_BY_KEY}, report)
+
+    assert updated["default_thresholds"] == thresholds
+    assert updated["threshold_calibration"]["score_source"] == "tflite_runtime_static"
+
+
+def test_apply_thresholds_to_metadata_rejects_partial_or_seed_thresholds():
+    partial = {
+        "thresholds_by_key": {"is_interesting": 0.5},
+        "skipped_heads": {},
+    }
+    with pytest.raises(ValueError, match="threshold keys"):
+        apply_thresholds_to_metadata({}, partial)
+
+    seed = {
+        "thresholds_by_key": DEFAULT_THRESHOLDS_BY_KEY,
+        "skipped_heads": {},
+    }
+    with pytest.raises(ValueError, match="seed defaults"):
+        apply_thresholds_to_metadata({}, seed)
