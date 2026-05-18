@@ -17,7 +17,9 @@ Shorter frontend outputs must be zero-padded before invocation.
 
 A single TFLite file plus a metadata sidecar:
 
-- `inherent.tflite` — int8-quantized joint audio→intent classifier
+- `inherent.tflite` — joint audio→intent classifier. The release default is
+  float16 TFLite for quality parity; int8 remains a performance target only
+  when export-time TFLite parity gates pass on a held-out manifest.
 - `inherent.metadata.json` — head names, thresholds, version, training hash
 
 Additional export backends can produce:

@@ -117,8 +117,17 @@ def export_to_tflite(
     convert_onnx_to_saved_model(onnx_path, saved_model_dir, cfg)
     convert_saved_model_to_tflite(saved_model_dir, cfg, tflite_path)
     verify_tflite(tflite_path, cfg)
-    verify_size(tflite_path, cfg.export.target_size_mb)
     reports = {"onnx_parity": str(parity_report)}
+    tflite_parity_report = maybe_write_tflite_parity_report(
+        checkpoint_path=checkpoint_path,
+        cfg=cfg,
+        tflite_path=tflite_path,
+        output_dir=output_dir,
+        backend_name=backend_name,
+    )
+    if tflite_parity_report is not None:
+        reports["tflite_parity"] = str(tflite_parity_report)
+    verify_size(tflite_path, cfg.export.target_size_mb)
     write_artifact_metadata(
         checkpoint_path=checkpoint_path,
         cfg=cfg,
@@ -134,6 +143,61 @@ def export_to_tflite(
         metadata_path=str(metadata_path),
         reports=reports,
     )
+
+
+def maybe_write_tflite_parity_report(
+    *,
+    checkpoint_path: Path,
+    cfg: Config,
+    tflite_path: Path,
+    output_dir: Path,
+    backend_name: str,
+) -> Path | None:
+    eval_manifest = Path(cfg.training.eval_manifest).expanduser() if cfg.training.eval_manifest else None
+    if eval_manifest is None or not eval_manifest.is_file():
+        return None
+
+    from ..eval.parity import compare_checkpoint_tflite
+
+    report = compare_checkpoint_tflite(
+        checkpoint_path=checkpoint_path,
+        tflite_path=tflite_path,
+        mel_manifest=eval_manifest,
+        batch_size=cfg.training.batch_size,
+        limit=cfg.export.tflite_parity_eval_samples,
+    )
+    report = {
+        "backend": backend_name,
+        "artifact": str(tflite_path),
+        "status": "passed",
+        **report,
+    }
+    report_path = output_dir / "reports" / "tflite_parity.json"
+    try:
+        enforce_tflite_parity_thresholds(report, cfg)
+    except ValueError as exc:
+        report["status"] = "failed"
+        report["failure"] = str(exc)
+        path = write_json_report(report_path, report)
+        raise ValueError(f"{exc}; report={path}") from exc
+    return write_json_report(report_path, report)
+
+
+def enforce_tflite_parity_thresholds(report: dict, cfg: Config) -> None:
+    comparison = report.get("comparisons", {}).get("checkpoint_runtime_static_vs_tflite_runtime_static")
+    if comparison is None:
+        raise ValueError("TFLite parity report missing checkpoint_runtime_static_vs_tflite_runtime_static comparison")
+    max_abs_diff = float(comparison["max_abs_diff"])
+    mean_abs_diff = float(comparison["mean_abs_diff"])
+    max_threshold = cfg.export.tflite_parity_max_abs_diff
+    mean_threshold = cfg.export.tflite_parity_mean_abs_diff
+    failures = []
+    if max_threshold is not None and max_abs_diff > max_threshold:
+        failures.append(f"max_abs_diff={max_abs_diff:.6g} > {max_threshold:.6g}")
+    if mean_threshold is not None and mean_abs_diff > mean_threshold:
+        failures.append(f"mean_abs_diff={mean_abs_diff:.6g} > {mean_threshold:.6g}")
+    if failures:
+        raise ValueError("TFLite parity drift exceeds export threshold: " + "; ".join(failures))
 
 
 def convert_onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path, cfg: Config) -> None:

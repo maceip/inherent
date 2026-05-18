@@ -12,7 +12,11 @@ from inherent.config import Config, ExportConfig, TrainingConfig
 from inherent.export import core, tflite
 from inherent.export.core import representative_sample_indexes, validate_tflite_io_contract
 from inherent.export.core import load_export_model
-from inherent.export.litert import convert_saved_model_to_tflite, validate_tflite_export_config
+from inherent.export.litert import (
+    convert_saved_model_to_tflite,
+    enforce_tflite_parity_thresholds,
+    validate_tflite_export_config,
+)
 
 
 def _tflite_io(
@@ -96,6 +100,26 @@ def test_tflite_export_requires_static_max_frames():
 
     with pytest.raises(ValueError, match=r"model.max_frames \(3000\); got None"):
         validate_tflite_export_config(Config(export=ExportConfig(onnx_static_frames=None)))
+
+
+def test_tflite_parity_thresholds_fail_on_excessive_drift():
+    report = {
+        "comparisons": {
+            "checkpoint_runtime_static_vs_tflite_runtime_static": {
+                "max_abs_diff": 0.02,
+                "mean_abs_diff": 0.001,
+            }
+        }
+    }
+    cfg = Config(export=ExportConfig(tflite_parity_max_abs_diff=0.01, tflite_parity_mean_abs_diff=0.002))
+
+    with pytest.raises(ValueError, match="max_abs_diff"):
+        enforce_tflite_parity_thresholds(report, cfg)
+
+    enforce_tflite_parity_thresholds(
+        report,
+        Config(export=ExportConfig(tflite_parity_max_abs_diff=0.03, tflite_parity_mean_abs_diff=0.002)),
+    )
 
 
 def test_export_rejects_checkpoint_with_different_padding_mode(tmp_path):

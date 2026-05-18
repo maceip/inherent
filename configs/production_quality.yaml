@@ -61,7 +61,7 @@ training:
 export:
   backend: all
   delegates: [cpu, gpu, tpu]
-  quantization: int8
+  quantization: float16
   representative_dataset_size: 500
   target_size_mb: 50
   output_path: artifacts/quality/inherent.tflite
@@ -75,6 +75,9 @@ export:
   onnx_static_frames: 3000
   strict_tensor_names: false
   parity_atol: 1.0e-4
+  tflite_parity_eval_samples: 256
+  tflite_parity_max_abs_diff: 0.005
+  tflite_parity_mean_abs_diff: 0.0005
 
 eval:
   held_out_audio_dir: data/eval_recorded

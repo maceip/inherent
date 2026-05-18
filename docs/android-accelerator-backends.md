@@ -6,6 +6,8 @@ This repo should produce one portable runtime model first:
 - input `mel_spectrogram`, `float32`, `[1, 3000, 128]`
 - output `intent_output`, `float32`, `[1, 13]`
 - standard TFLite/LiteRT ops only, no recovered DarwiNN custom op
+- release default: float16 TFLite until int8 passes the same parity and quality
+  gates; int8 is a performance optimization, not the quality baseline
 
 That artifact is the source for every Android backend. The recovered
 `audio_gatekeeper_edgetpu.tflite` is useful as a teacher and reference, but it is

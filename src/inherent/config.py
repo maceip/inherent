@@ -95,7 +95,7 @@ class TrainingConfig:
     focal_gamma: float = 2.0
     class_weights: str = "balanced"
     sampler: str = "shuffle"
-    padding: str = "dynamic"
+    padding: str = "runtime_static"
     train_manifest: str = "data/train_manifest.csv"
     eval_manifest: str | None = None
     num_workers: int = 4
@@ -151,6 +151,9 @@ class ExportConfig:
     onnx_static_frames: int | None = RUNTIME_MAX_FRAMES
     strict_tensor_names: bool = True
     parity_atol: float = 1.0e-4
+    tflite_parity_eval_samples: int = 64
+    tflite_parity_max_abs_diff: float | None = None
+    tflite_parity_mean_abs_diff: float | None = None
 
     def __post_init__(self) -> None:
         if self.backend not in {"tflite", "litert", "onnx", "mlx", "litertlm", "all"}:
@@ -183,6 +186,12 @@ class ExportConfig:
             raise ValueError("onnx_static_frames must be positive when set")
         if self.parity_atol <= 0:
             raise ValueError("parity_atol must be positive")
+        if self.tflite_parity_eval_samples < 1:
+            raise ValueError("tflite_parity_eval_samples must be positive")
+        if self.tflite_parity_max_abs_diff is not None and self.tflite_parity_max_abs_diff <= 0:
+            raise ValueError("tflite_parity_max_abs_diff must be positive when set")
+        if self.tflite_parity_mean_abs_diff is not None and self.tflite_parity_mean_abs_diff <= 0:
+            raise ValueError("tflite_parity_mean_abs_diff must be positive when set")
 
 
 @dataclass
