@@ -43,6 +43,14 @@ After training, you can export to:
   into the package; used when an external builder is available.
 - **MLX** — native Apple Silicon on macOS, iPhone, and iPad.
 
+For browser deployment, use the ONNX export with ONNX Runtime Web. The static
+GitHub Pages demo in `docs/browser-demo/` loads `inherent.onnx`, records from
+the browser microphone, runs a JavaScript 128-bin mel frontend, and highlights
+the output head whose score crosses its metadata threshold. The other supported
+export backends target native runtimes rather than static web pages: LiteRT /
+TFLite for mobile and small devices, LiteRT-LM for LiteRT-LM packages, and MLX
+for Apple Silicon.
+
 ### Rough latency per inference
 
 For one ~1 second audio window (mel shape `[1, ~100, 128]`) on commodity
