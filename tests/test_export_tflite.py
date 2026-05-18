@@ -15,6 +15,8 @@ from inherent.export.core import load_export_model
 from inherent.export.litert import (
     convert_saved_model_to_tflite,
     enforce_tflite_parity_thresholds,
+    maybe_write_tflite_parity_report,
+    require_tflite_parity_thresholds,
     validate_tflite_export_config,
 )
 
@@ -128,6 +130,36 @@ def test_tflite_parity_thresholds_fail_on_excessive_drift():
         report,
         Config(export=ExportConfig(tflite_parity_max_abs_diff=0.03, tflite_parity_mean_abs_diff=0.002)),
     )
+
+
+def test_required_tflite_parity_fails_when_eval_manifest_missing(tmp_path):
+    cfg = Config(
+        training=TrainingConfig(eval_manifest=str(tmp_path / "missing.csv")),
+        export=ExportConfig(require_tflite_parity=True),
+    )
+
+    with pytest.raises(FileNotFoundError, match="TFLite parity is required"):
+        maybe_write_tflite_parity_report(
+            checkpoint_path=tmp_path / "best.pt",
+            cfg=cfg,
+            tflite_path=tmp_path / "inherent.tflite",
+            output_dir=tmp_path,
+            backend_name="tflite",
+        )
+
+
+def test_required_tflite_parity_needs_thresholds():
+    cfg = Config(
+        export=ExportConfig(
+            require_tflite_parity=False,
+            tflite_parity_max_abs_diff=None,
+            tflite_parity_mean_abs_diff=None,
+        )
+    )
+    cfg.export.require_tflite_parity = True
+
+    with pytest.raises(ValueError, match="thresholds are unset"):
+        require_tflite_parity_thresholds(cfg)
 
 
 def test_export_rejects_checkpoint_with_different_padding_mode(tmp_path):

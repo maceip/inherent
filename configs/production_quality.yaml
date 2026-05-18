@@ -77,6 +77,7 @@ export:
   onnx_static_frames: 3000
   strict_tensor_names: false
   parity_atol: 1.0e-4
+  require_tflite_parity: true
   tflite_parity_eval_samples: 256
   tflite_parity_max_abs_diff: 0.005
   tflite_parity_mean_abs_diff: 0.0005
