@@ -29,12 +29,15 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "./assets/theme-reference.svg" in index
     assert 'id="scope"' in index
     assert 'id="flowHeads"' in index
+    assert 'id="startRecording" type="button">Start recording</button>' in index
+    assert "Start recording to preview the mic oscilloscope" in index
     assert "webgpu" in app
     assert "wasm" in app
     assert "mel_spectrogram" in app
     assert "intent_output" in app
     assert "drawScope" in app
     assert "renderFlowHeads" in app
+    assert "Recording mic preview" in app
 
 
 def test_browser_demo_embeds_runtime_head_order():

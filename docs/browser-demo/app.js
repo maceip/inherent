@@ -126,6 +126,8 @@ async function autoLoadDefaultModel() {
       "Place an ONNX export under ./assets or choose local files. " +
         `Default load skipped: ${error.message}`,
     );
+    dom.startRecording.disabled = false;
+    setRecordingStatus("Start recording to preview the mic oscilloscope. Load a model to see head hits.");
   }
 }
 
@@ -141,7 +143,6 @@ async function loadModel(options = {}) {
     renderHeadCards();
     renderFlowHeads();
     updateRuntimeBadge(`Runtime: ${state.provider}`, true);
-    dom.startRecording.disabled = false;
     setModelStatus(
       `Loaded ${state.metadata.artifact_format || "onnx"} model. ` +
         `Input: ${inputName()}, output: ${outputName()}.`,
@@ -218,11 +219,6 @@ function browserExecutionProviders() {
 }
 
 async function startRecording() {
-  if (!state.session) {
-    setRecordingStatus("Load an ONNX model before recording.");
-    return;
-  }
-
   try {
     state.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -254,7 +250,9 @@ async function startRecording() {
     dom.startRecording.disabled = true;
     dom.stopRecording.disabled = false;
     updateRecordingBadge("Mic: recording", true);
-    setRecordingStatus("Recording... scores update about once per second.");
+    setRecordingStatus(state.session
+      ? "Recording... scores update about once per second."
+      : "Recording mic preview. Load an ONNX model to enable head-hit inference.");
 
     state.inferenceTimer = window.setInterval(() => {
       runInferenceFromBufferedAudio().catch((error) => {
@@ -292,7 +290,7 @@ async function stopRecording(runFinalInference) {
   state.sourceNode = null;
   state.audioContext = null;
   state.mediaStream = null;
-  dom.startRecording.disabled = !state.session;
+  dom.startRecording.disabled = false;
   dom.stopRecording.disabled = true;
   updateRecordingBadge("Mic: idle", false);
   dom.levelFill.style.width = "0%";
@@ -301,8 +299,10 @@ async function stopRecording(runFinalInference) {
   if (runFinalInference && state.chunks.length) {
     await runInferenceFromBufferedAudio();
     setRecordingStatus("Recording stopped. Final scores shown below.");
-  } else if (state.session) {
-    setRecordingStatus("Ready to record from the browser microphone.");
+  } else {
+    setRecordingStatus(state.session
+      ? "Ready to record from the browser microphone."
+      : "Start recording to preview the mic oscilloscope. Load a model to see head hits.");
   }
 }
 
@@ -794,8 +794,8 @@ function resetDemo() {
   updateRecordingBadge("Mic: idle", false);
   setInferenceStatus("Inference: idle");
   setModelStatus("Waiting for a model.");
-  setRecordingStatus("Load a model before recording.");
-  dom.startRecording.disabled = true;
+  setRecordingStatus("Start recording to preview the mic oscilloscope. Load a model to see head hits.");
+  dom.startRecording.disabled = false;
   dom.stopRecording.disabled = true;
 }
 
