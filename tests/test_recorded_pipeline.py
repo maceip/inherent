@@ -220,6 +220,46 @@ def test_model_group_reuses_previous_eval_and_test_identities(tmp_path, monkeypa
     assert json.loads(second.model_group_json.read_text())["previous_model_group"] == str(first_group)
 
 
+def test_previous_model_group_rejects_heldout_relabels(tmp_path, monkeypatch):
+    labels = _write_dummy_recorded_library(tmp_path / "library")
+    monkeypatch.setattr(recorded, "materialize_mel_manifest", _fake_materialize_mel_manifest)
+
+    first_group = tmp_path / "model-groups" / "001"
+    recorded.build_recorded_library(
+        cfg=Config.load("configs/smoke.yaml"),
+        labels_manifest=labels,
+        model_group_dir=first_group,
+        frontend_model=tmp_path / "audio_frontend.tflite",
+        train=False,
+        evaluate=False,
+        export=False,
+    )
+
+    rows = list(csv.DictReader(labels.open()))
+    for row in rows:
+        row["split"] = ""
+    heldout = next(row for row in rows if row["audio_path"].endswith("eval_hasAddToListIntent.wav"))
+    heldout["hasAddToListIntent"] = "0"
+    heldout["hasCallingAgentIntent"] = "1"
+    relabeled = tmp_path / "library" / "labels_relabeled.csv"
+    with relabeled.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LABEL_TEMPLATE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="previous heldout labels changed"):
+        recorded.build_recorded_library(
+            cfg=Config.load("configs/smoke.yaml"),
+            labels_manifest=relabeled,
+            model_group_dir=tmp_path / "model-groups" / "002",
+            previous_model_group=first_group,
+            frontend_model=tmp_path / "audio_frontend.tflite",
+            train=False,
+            evaluate=False,
+            export=False,
+        )
+
+
 def test_previous_model_group_head_mismatch_requires_new_group(tmp_path):
     labels = _write_dummy_recorded_library(tmp_path / "library")
     previous_group = tmp_path / "model-groups" / "001"

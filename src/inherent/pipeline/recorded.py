@@ -527,7 +527,7 @@ def _write_explicit_splits(input_manifest: Path, split_dir: Path) -> None:
 
 
 def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, previous_model_group: Path) -> None:
-    heldout_by_id = _load_previous_heldout_ids(previous_model_group)
+    heldout_by_id = _load_previous_heldout_records(previous_model_group)
     if not heldout_by_id:
         raise ValueError(f"previous model group has no eval/test identities: {previous_model_group}")
     with input_manifest.open(newline="") as f:
@@ -546,10 +546,23 @@ def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, pre
     for index, row in enumerate(rows, start=2):
         identity = _row_audio_identity(row, input_manifest.parent)
         group = _row_group_key(row, index)
-        previous_split = heldout_by_id.get(identity)
+        previous_record = heldout_by_id.get(identity)
+        previous_split = None if previous_record is None else previous_record["split"]
         row_identities.append((row, identity, group))
-        if previous_split is None:
+        if previous_record is None:
             continue
+        previous_labels = previous_record["labels"]
+        current_labels = _labels_from_row(row)
+        if current_labels != previous_labels:
+            changed = [
+                head
+                for head in HEAD_ORDER
+                if current_labels.get(head) != previous_labels.get(head)
+            ]
+            raise ValueError(
+                "previous heldout labels changed for identity "
+                f"{identity}: first_changed_head={changed[0]}"
+            )
         matched_heldout.add(identity)
         existing = forced_by_group.get(group)
         if existing is not None and existing != previous_split:
@@ -586,22 +599,47 @@ def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, pre
         raise ValueError(f"previous-model-group split reuse produced empty splits: {missing_splits}")
 
 
-def _load_previous_heldout_ids(previous_model_group: Path) -> dict[str, str]:
+def _load_previous_heldout_records(previous_model_group: Path) -> dict[str, dict]:
     index_path = previous_model_group / "split_identity_index.json"
     if not index_path.is_file():
         raise FileNotFoundError(f"previous model group missing split identity index: {index_path}")
     data = json.loads(index_path.read_text())
     if tuple(data.get("head_order", ())) != HEAD_ORDER:
         raise ValueError("previous split identity index head_order does not match current HEAD_ORDER")
-    heldout: dict[str, str] = {}
+    heldout: dict[str, dict] = {}
     for split in ("eval", "test"):
         for row in data.get("splits", {}).get(split, []):
             identity = row["identity"]
             existing = heldout.get(identity)
-            if existing is not None and existing != split:
-                raise ValueError(f"audio identity appears in both {existing!r} and {split!r}: {identity}")
-            heldout[identity] = split
+            labels = _labels_from_record(row, index_path)
+            if existing is not None:
+                if existing["split"] != split:
+                    raise ValueError(f"audio identity appears in both {existing['split']!r} and {split!r}: {identity}")
+                if existing["labels"] != labels:
+                    raise ValueError(f"audio identity has inconsistent heldout labels: {identity}")
+            heldout[identity] = {"split": split, "labels": labels}
     return heldout
+
+
+def _labels_from_record(row: dict, path: Path) -> dict[str, str]:
+    labels = row.get("labels")
+    if not isinstance(labels, dict):
+        raise ValueError(f"previous split identity row missing labels in {path}")
+    missing = [head for head in HEAD_ORDER if head not in labels]
+    if missing:
+        raise ValueError(f"previous split identity row missing label heads {missing} in {path}")
+    return {head: _normalize_label_value(str(labels[head]), path, head) for head in HEAD_ORDER}
+
+
+def _labels_from_row(row: dict[str, str]) -> dict[str, str]:
+    return {head: row[head].strip() for head in HEAD_ORDER}
+
+
+def _normalize_label_value(value: str, path: Path, head: str) -> str:
+    normalized = value.strip()
+    if normalized not in {"0", "1"}:
+        raise ValueError(f"previous split identity row has invalid label {value!r} for {head} in {path}")
+    return normalized
 
 
 def _require_no_group_leakage(rows: list[dict[str, str]]) -> None:
