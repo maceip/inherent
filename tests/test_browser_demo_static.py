@@ -28,8 +28,8 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert 'url=../' in legacy_index
     assert 'href="../"' in legacy_index
     assert "onnxruntime-web" in root_index
-    assert "./assets/inherent.onnx" in root_index
-    assert "./assets/inherent.onnx.metadata.json" in root_index
+    assert "assets/inherent.onnx" in root_index
+    assert "assets/inherent.onnx.metadata.json" in root_index
     assert "./browser-demo/assets/theme-reference.svg" in root_index
     assert 'id="scope"' in root_index
     assert 'id="flowHeads"' in root_index
@@ -42,6 +42,8 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "mel_spectrogram" in app
     assert "intent_output" in app
     assert "DEFAULT_MODEL_URL" in app
+    assert './assets/inherent.onnx' in app
+    assert './assets/inherent.onnx.metadata.json' in app
     assert "recentAudioWindow" in app
     assert "browserPaddingValue" in app
     assert "drawScope" in app
