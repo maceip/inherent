@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -68,9 +69,11 @@ def evaluate_checkpoint(
     *,
     batch_size: int = 32,
     device: str = "cpu",
+    runtime_static: bool | None = None,
 ) -> dict[str, dict[str, float]]:
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     model_cfg = _checkpoint_model_config(checkpoint)
+    runtime_static = _runtime_static_for_checkpoint(checkpoint, override=runtime_static)
     runtime_device = _select_device(device)
     model = JointAudioIntentModel(model_cfg)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -87,7 +90,9 @@ def evaluate_checkpoint(
         batch_size=batch_size,
         shuffle=False,
         num_workers=0,
-        collate_fn=collate_mel_batches,
+        collate_fn=partial(collate_mel_batches, fixed_frames=model_cfg.max_frames)
+        if runtime_static
+        else collate_mel_batches,
         drop_last=False,
     )
 
@@ -96,7 +101,8 @@ def evaluate_checkpoint(
     with torch.no_grad():
         for batch in loader:
             moved = _move_batch(batch, runtime_device)
-            batch_scores = model.predict_proba(moved.mel, lengths=moved.lengths)
+            lengths = None if runtime_static else moved.lengths
+            batch_scores = model.predict_proba(moved.mel, lengths=lengths)
             scores.append(batch_scores.cpu().numpy())
             labels.append(moved.targets.cpu().numpy())
     if not scores:
@@ -151,6 +157,9 @@ def main() -> None:
     parser.add_argument("--eval-set", required=True, type=Path)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default="cpu")
+    padding = parser.add_mutually_exclusive_group()
+    padding.add_argument("--runtime-static", action="store_true")
+    padding.add_argument("--dynamic-padding", action="store_true")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--gate-json-out", type=Path)
@@ -161,6 +170,7 @@ def main() -> None:
         args.eval_set,
         batch_size=args.batch_size,
         device=args.device,
+        runtime_static=True if args.runtime_static else False if args.dynamic_padding else None,
     )
     print(format_metrics(metrics))
     if args.json_out is not None:
@@ -198,6 +208,16 @@ def _checkpoint_model_config(checkpoint: dict) -> ModelConfig:
     if "config" not in checkpoint or "model" not in checkpoint["config"]:
         raise ValueError("checkpoint missing config.model")
     return ModelConfig(**checkpoint["config"]["model"])
+
+
+def _runtime_static_for_checkpoint(checkpoint: dict, *, override: bool | None) -> bool:
+    if override is not None:
+        return override
+    training = checkpoint.get("config", {}).get("training", {})
+    padding = training.get("padding", "dynamic")
+    if padding not in {"dynamic", "runtime_static"}:
+        raise ValueError(f"checkpoint config.training.padding is invalid: {padding!r}")
+    return padding == "runtime_static"
 
 
 def _select_device(name: str) -> torch.device:

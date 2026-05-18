@@ -205,6 +205,10 @@ PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.
 To verify the pipeline on the bundled example, point `--labels` at
 `data/model_group_001_labels.csv` and add `--max-steps 1`.
 
+`inherent-eval` defaults to the checkpoint's saved `training.padding` mode.
+Use `--dynamic-padding` or `--runtime-static` only when intentionally comparing
+checkpoint behavior against a different runtime shape.
+
 ### Approximate wall time for a production run
 
 Numbers from a real v0 run (146k mels, 100k steps, single L4 GPU box).

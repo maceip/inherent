@@ -1,5 +1,8 @@
+import pytest
+
 from inherent import HEAD_ORDER
 from inherent.eval.evaluate import evaluate_gates
+from inherent.eval.evaluate import _runtime_static_for_checkpoint
 
 
 def metrics(auc=0.9, eer=0.05, fpr=0.05):
@@ -39,3 +42,13 @@ def test_evaluate_gates_fails_thresholds():
 
     assert result["passed"] is False
     assert result["checks"]["intent_min_auc"]["passed"] is False
+
+
+def test_checkpoint_eval_uses_checkpoint_padding_by_default():
+    assert _runtime_static_for_checkpoint({"config": {"training": {"padding": "runtime_static"}}}, override=None)
+    assert not _runtime_static_for_checkpoint({"config": {"training": {"padding": "dynamic"}}}, override=None)
+    assert not _runtime_static_for_checkpoint({"config": {"training": {"padding": "runtime_static"}}}, override=False)
+    assert _runtime_static_for_checkpoint({"config": {"training": {"padding": "dynamic"}}}, override=True)
+
+    with pytest.raises(ValueError, match="padding"):
+        _runtime_static_for_checkpoint({"config": {"training": {"padding": "sometimes"}}}, override=None)
