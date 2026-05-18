@@ -51,6 +51,7 @@ training:
   focal_gamma: 2.0
   class_weights: balanced
   sampler: label_balanced
+  padding: runtime_static
   train_manifest: data/quality_train_manifest.csv
   eval_manifest: data/quality_eval_manifest.csv
   num_workers: 0

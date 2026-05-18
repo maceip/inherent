@@ -273,15 +273,93 @@ def representative_dataset(cfg: Config):
         mel_bins=cfg.model.mel_bins,
         max_frames=cfg.model.max_frames,
     )
-    count = min(cfg.export.representative_dataset_size, len(dataset))
-    if count < 1:
+    indexes = representative_sample_indexes(dataset, cfg.export.representative_dataset_size)
+    if not indexes:
         raise ValueError("representative_dataset_size must select at least one sample")
-    for index in range(count):
+    for index in indexes:
         mel, _, _ = dataset[index]
         sample = mel.numpy().astype(np.float32)
         if cfg.export.onnx_static_frames is not None:
             sample = fit_frames(sample, cfg.export.onnx_static_frames)
         yield {INPUT_TENSOR_NAME: np.expand_dims(sample, axis=0)}
+
+
+def representative_sample_indexes(dataset, max_count: int) -> list[int]:
+    """Select deterministic, label-stratified rows for int8 calibration.
+
+    The exported Android model is fixed-shape and sees one sample at a time.
+    Feeding the first N manifest rows can easily miss rare intent heads or
+    negative-only audio, which makes int8 calibration unstable. This selector
+    first round-robins positive examples per head, then includes negative-only
+    rows, then fills any remaining budget evenly over the manifest order.
+    """
+
+    import numpy as np
+
+    if max_count < 1:
+        raise ValueError("representative_dataset_size must be positive")
+    count = min(max_count, len(dataset))
+    if count < 1:
+        return []
+    labels = dataset.label_matrix().numpy()
+    selected: list[int] = []
+    selected_set: set[int] = set()
+
+    def add(index: int) -> bool:
+        if index in selected_set:
+            return False
+        selected.append(index)
+        selected_set.add(index)
+        return True
+
+    negative_only = [int(index) for index in np.flatnonzero(labels.sum(axis=1) == 0)]
+    negative_budget = min(len(negative_only), max(1, count // 5)) if negative_only else 0
+    positive_budget = count - negative_budget
+    positive_indexes = [
+        _evenly_spaced_indexes([int(index) for index in np.flatnonzero(labels[:, head_index] >= 0.5)])
+        for head_index in range(len(HEAD_ORDER))
+    ]
+    cursors = [0 for _ in positive_indexes]
+    while len(selected) < positive_budget:
+        progressed = False
+        for head_index, indexes in enumerate(positive_indexes):
+            while cursors[head_index] < len(indexes) and indexes[cursors[head_index]] in selected_set:
+                cursors[head_index] += 1
+            if cursors[head_index] >= len(indexes):
+                continue
+            progressed = add(indexes[cursors[head_index]]) or progressed
+            cursors[head_index] += 1
+            if len(selected) >= count:
+                break
+        if not progressed:
+            break
+
+    for index in _evenly_spaced_indexes(negative_only):
+        if len(selected) >= count:
+            break
+        add(index)
+
+    for index in _evenly_spaced_indexes(list(range(len(dataset)))):
+        if len(selected) >= count:
+            break
+        add(index)
+    return selected
+
+
+def _evenly_spaced_indexes(indexes: list[int]) -> list[int]:
+    if len(indexes) <= 2:
+        return indexes
+    ordered_positions: list[int] = []
+    pending = [(0, len(indexes) - 1)]
+    while pending:
+        start, end = pending.pop(0)
+        if start > end:
+            continue
+        middle = (start + end) // 2
+        ordered_positions.append(middle)
+        pending.append((start, middle - 1))
+        pending.append((middle + 1, end))
+    return [indexes[position] for position in ordered_positions]
 
 
 def write_json_report(path: Path, payload: dict[str, Any]) -> Path:

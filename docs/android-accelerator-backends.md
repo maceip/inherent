@@ -61,6 +61,9 @@ CI and device reports explicit.
    PyTorch checkpoint. The fixture config must use `training.padding:
    runtime_static`; otherwise checkpoint quality can look good while the Android
    artifact regresses because the export has no runtime padding mask.
+   When checkpoint and TFLite quality disagree, run `inherent-parity` before
+   retraining so padding drift and TFLite quantization drift are visible
+   separately.
 3. Add Android `CompiledModel` backend in the app with priority:
    `google_tensor`/`npu` -> `gpu` -> `cpu`.
 4. Run JIT device smoke on Pixel and Xiaomi:

@@ -1,11 +1,13 @@
 import json
 
+import numpy as np
 import pytest
+import torch
 
 from inherent import HEAD_ORDER, THRESHOLD_KEYS
 from inherent.config import Config, ExportConfig
 from inherent.export import core, tflite
-from inherent.export.core import validate_tflite_io_contract
+from inherent.export.core import representative_sample_indexes, validate_tflite_io_contract
 from inherent.export.litert import validate_tflite_export_config
 
 
@@ -90,3 +92,29 @@ def test_tflite_export_requires_static_max_frames():
 
     with pytest.raises(ValueError, match=r"model.max_frames \(3000\); got None"):
         validate_tflite_export_config(Config(export=ExportConfig(onnx_static_frames=None)))
+
+
+class _LabelOnlyDataset:
+    def __init__(self, labels):
+        self._labels = torch.tensor(labels, dtype=torch.float32)
+
+    def __len__(self):
+        return self._labels.shape[0]
+
+    def label_matrix(self):
+        return self._labels
+
+
+def test_representative_samples_are_label_stratified():
+    labels = np.zeros((32, len(HEAD_ORDER)), dtype=np.float32)
+    labels[:10, 0] = 1.0
+    for head_index in range(len(HEAD_ORDER)):
+        labels[10 + head_index, head_index] = 1.0
+
+    indexes = representative_sample_indexes(_LabelOnlyDataset(labels), max_count=16)
+
+    selected = labels[indexes]
+    assert len(indexes) == 16
+    assert selected.sum(axis=0).min() >= 1.0
+    assert np.any(selected.sum(axis=1) == 0.0)
+    assert indexes != list(range(16))

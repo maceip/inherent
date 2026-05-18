@@ -131,6 +131,18 @@ PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.fix
   --mel-manifest artifacts/fixture-quality/mels_manifest.csv
 ```
 
+If the exported TFLite underperforms the checkpoint, generate a parity report
+before retraining. This separates padding mismatch from export/quantization
+drift:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.parity \
+  --checkpoint artifacts/fixture-quality/runtime-static-run/best.pt \
+  --tflite-model artifacts/fixture-quality/runtime-static-export/inherent.tflite \
+  --mel-manifest artifacts/fixture-quality/mels_manifest.csv \
+  --json-out artifacts/fixture-quality/runtime-static-export/reports/parity.json
+```
+
 ## Install
 
 ```bash
