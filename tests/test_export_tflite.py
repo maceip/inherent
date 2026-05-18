@@ -122,6 +122,17 @@ def test_representative_samples_are_label_stratified():
     assert indexes != list(range(16))
 
 
+def test_representative_samples_bound_manifest_fill_work():
+    labels = np.zeros((10_000, len(HEAD_ORDER)), dtype=np.float32)
+    labels[::100, 0] = 1.0
+
+    indexes = representative_sample_indexes(_LabelOnlyDataset(labels), max_count=8)
+
+    assert len(indexes) == 8
+    assert max(indexes) > 5_000
+    assert indexes != list(range(8))
+
+
 @pytest.mark.parametrize(
     ("quantization", "expected"),
     [

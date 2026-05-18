@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -334,25 +335,28 @@ def representative_sample_indexes(dataset, max_count: int) -> list[int]:
         if not progressed:
             break
 
-    for index in _evenly_spaced_indexes(negative_only):
+    for index in _evenly_spaced_indexes(negative_only, max_count=count - len(selected)):
         if len(selected) >= count:
             break
         add(index)
 
-    for index in _evenly_spaced_indexes(list(range(len(dataset)))):
+    for index in _evenly_spaced_indexes(list(range(len(dataset))), max_count=count - len(selected)):
         if len(selected) >= count:
             break
         add(index)
     return selected
 
 
-def _evenly_spaced_indexes(indexes: list[int]) -> list[int]:
+def _evenly_spaced_indexes(indexes: list[int], *, max_count: int | None = None) -> list[int]:
+    if max_count is not None and max_count <= 0:
+        return []
     if len(indexes) <= 2:
-        return indexes
+        return indexes[:max_count]
+    target = len(indexes) if max_count is None else min(max_count, len(indexes))
     ordered_positions: list[int] = []
-    pending = [(0, len(indexes) - 1)]
-    while pending:
-        start, end = pending.pop(0)
+    pending = deque([(0, len(indexes) - 1)])
+    while pending and len(ordered_positions) < target:
+        start, end = pending.popleft()
         if start > end:
             continue
         middle = (start + end) // 2
