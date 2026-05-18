@@ -39,6 +39,12 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert 'id="qualityGates"' in root_index
     assert 'class="donate-head-button"' in root_index
     assert "Donate labeled speech from the route" in root_index
+    assert "Per-head positive" in root_index
+    assert "Interesting / no intent" in root_index
+    assert "Hard speech negative" in root_index
+    assert "Non-speech negative" in root_index
+    assert "Confuser negative" in root_index
+    assert "Ambiguous / review" in root_index
     assert 'id="downloadFeedback"' in root_index
     assert 'role="progressbar"' in root_index
     assert 'id="startRecording" type="button" disabled>Record</button>' in root_index
