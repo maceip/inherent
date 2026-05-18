@@ -5,6 +5,7 @@ from inherent.export.registry import list_backends
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DOCS_DIR = ROOT / "docs"
 DEMO_DIR = ROOT / "docs" / "browser-demo"
 
 
@@ -20,9 +21,12 @@ def test_browser_demo_documents_supported_backend_matrix():
 
 
 def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
+    root_index = (DOCS_DIR / "index.html").read_text()
     index = (DEMO_DIR / "index.html").read_text()
     app = (DEMO_DIR / "app.js").read_text()
 
+    assert 'url=./browser-demo/' in root_index
+    assert 'href="./browser-demo/"' in root_index
     assert "onnxruntime-web" in index
     assert "./assets/inherent.onnx" in index
     assert "./assets/inherent.onnx.metadata.json" in index

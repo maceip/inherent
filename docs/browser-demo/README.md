@@ -60,10 +60,14 @@ artifacts with `git add -f` when you want GitHub Pages to serve them.
 
 ## Publish on GitHub Pages
 
-Configure Pages to serve the repository's `/docs` directory. The demo will be
-available at:
+Configure Pages to serve the repository's `/docs` directory from this branch.
+No GitHub Action is required because the site is plain static HTML/CSS/JS.
+
+The Pages root has `docs/index.html`, which redirects to the demo. These URLs
+should both work after Pages finishes publishing:
 
 ```text
+https://<owner>.github.io/<repo>/
 https://<owner>.github.io/<repo>/browser-demo/
 ```
 

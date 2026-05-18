@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="0; url=./browser-demo/">
+    <title>Inherent browser demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --dojo-red: #fa0900;
+        --dojo-pink: #ff4bd8;
+        --dojo-yellow: #ffe90f;
+        --dojo-green: #60ff7f;
+        --ink: #080914;
+        --paper: #fff8df;
+        --shadow: rgba(8, 9, 20, 0.34);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        align-items: center;
+        background:
+          linear-gradient(180deg, var(--dojo-pink) 0 48px, transparent 48px),
+          linear-gradient(180deg, var(--dojo-red) 0 60%, var(--dojo-yellow) 60%);
+        color: var(--ink);
+        display: grid;
+        font: 18px/1.5 "Trebuchet MS", ui-rounded, system-ui, sans-serif;
+        justify-items: center;
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      main {
+        background: var(--paper);
+        border: 7px solid var(--ink);
+        border-radius: 28px;
+        box-shadow: 12px 12px 0 var(--shadow);
+        max-width: 720px;
+        padding: clamp(24px, 6vw, 44px);
+        text-align: center;
+      }
+
+      h1 {
+        font-size: clamp(2.25rem, 8vw, 5rem);
+        letter-spacing: -0.07em;
+        line-height: 0.9;
+        margin: 0 0 16px;
+        text-transform: uppercase;
+      }
+
+      p {
+        font-weight: 800;
+        margin: 0 0 20px;
+      }
+
+      a {
+        background: var(--dojo-green);
+        border: 5px solid var(--ink);
+        border-radius: 999px;
+        box-shadow: 5px 5px 0 var(--shadow);
+        color: var(--ink);
+        display: inline-block;
+        font-weight: 900;
+        padding: 12px 18px;
+        text-decoration: none;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Loading Inherent browser demo</h1>
+      <p>Redirecting to the mic dojo interface.</p>
+      <a href="./browser-demo/">Open browser demo</a>
+    </main>
+  </body>
+</html>
