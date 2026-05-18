@@ -74,6 +74,7 @@ const state = {
   inferInFlight: false,
   melFilterBank: null,
   hannWindow: null,
+  lastScores: [],
 };
 
 const dom = {
@@ -91,9 +92,13 @@ const dom = {
   recordingBadge: document.getElementById("recordingBadge"),
   inferenceBadge: document.getElementById("inferenceBadge"),
   levelFill: document.getElementById("levelFill"),
+  scope: document.getElementById("scope"),
   bestMatch: document.getElementById("bestMatch"),
   heads: document.getElementById("heads"),
+  flowHeads: document.getElementById("flowHeads"),
+  gateScore: document.getElementById("gateScore"),
   headTemplate: document.getElementById("headTemplate"),
+  flowHeadTemplate: document.getElementById("flowHeadTemplate"),
 };
 
 if (globalThis.ort) {
@@ -101,6 +106,8 @@ if (globalThis.ort) {
 }
 
 renderHeadCards();
+renderFlowHeads();
+drawIdleScope();
 wireEvents();
 autoLoadDefaultModel();
 
@@ -132,6 +139,7 @@ async function loadModel(options = {}) {
     const modelSource = await loadModelSource(options);
     state.session = await createSessionWithFallback(modelSource);
     renderHeadCards();
+    renderFlowHeads();
     updateRuntimeBadge(`Runtime: ${state.provider}`, true);
     dom.startRecording.disabled = false;
     setModelStatus(
@@ -237,6 +245,7 @@ async function startRecording() {
       state.chunks.push(chunk);
       trimBufferedChunks();
       updateLevel(chunk);
+      drawScope(chunk);
     };
 
     state.sourceNode.connect(state.processorNode);
@@ -287,6 +296,7 @@ async function stopRecording(runFinalInference) {
   dom.stopRecording.disabled = true;
   updateRecordingBadge("Mic: idle", false);
   dom.levelFill.style.width = "0%";
+  drawIdleScope();
 
   if (runFinalInference && state.chunks.length) {
     await runInferenceFromBufferedAudio();
@@ -530,6 +540,84 @@ function updateLevel(chunk) {
   dom.levelFill.style.width = `${percent}%`;
 }
 
+function drawScope(chunk) {
+  const canvas = dom.scope;
+  if (!canvas) {
+    return;
+  }
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  drawScopeGrid(ctx, width, height);
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "#60ff7f";
+  ctx.shadowColor = "#60ff7f";
+  ctx.shadowBlur = 14;
+  ctx.beginPath();
+  const step = Math.max(1, Math.floor(chunk.length / width));
+  for (let x = 0; x < width; x += 1) {
+    const sample = chunk[Math.min(chunk.length - 1, x * step)] || 0;
+    const y = height / 2 - sample * height * 0.42;
+    if (x === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function drawIdleScope() {
+  const canvas = dom.scope;
+  if (!canvas) {
+    return;
+  }
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  drawScopeGrid(ctx, width, height);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(255, 233, 15, 0.85)";
+  ctx.beginPath();
+  for (let x = 0; x < width; x += 1) {
+    const y = height / 2 + Math.sin(x / 28) * 18;
+    if (x === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+}
+
+function drawScopeGrid(ctx, width, height) {
+  ctx.fillStyle = "#10151f";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "rgba(96, 255, 127, 0.16)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= width; x += 48) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= height; y += 44) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255, 233, 15, 0.45)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, height / 2);
+  ctx.lineTo(width, height / 2);
+  ctx.stroke();
+}
+
 function renderHeadCards() {
   const heads = headOrder();
   dom.heads.replaceChildren();
@@ -542,11 +630,28 @@ function renderHeadCards() {
   }
 }
 
+function renderFlowHeads() {
+  if (!dom.flowHeads) {
+    return;
+  }
+  const intents = headOrder().slice(1);
+  dom.flowHeads.replaceChildren();
+  for (const head of intents) {
+    const node = dom.flowHeadTemplate.content.firstElementChild.cloneNode(true);
+    node.dataset.head = head;
+    node.querySelector("strong").textContent = compactHead(head);
+    node.querySelector("small").textContent = "0.00";
+    dom.flowHeads.appendChild(node);
+  }
+  updateGateScore(null, null);
+}
+
 function renderScores(scores) {
   const heads = headOrder();
   const thresholds = thresholdValues();
   let best = null;
   const matches = [];
+  state.lastScores = scores;
 
   heads.forEach((head, index) => {
     const score = Number(scores[index] || 0);
@@ -565,12 +670,40 @@ function renderScores(scores) {
     }
   });
 
+  updateFlowScores(scores, thresholds);
   const intentMatches = matches.filter((match) => match.index > 0);
   const selected = intentMatches.sort((a, b) => b.score - a.score)[0] ||
     matches.sort((a, b) => b.score - a.score)[0] ||
     best;
   const matched = matches.includes(selected);
   updateBestMatch(selected, matched);
+}
+
+function updateFlowScores(scores, thresholds) {
+  updateGateScore(Number(scores[0] || 0), thresholds[0] || 0.5);
+  const heads = headOrder();
+  for (let index = 1; index < heads.length; index += 1) {
+    const head = heads[index];
+    const score = Number(scores[index] || 0);
+    const threshold = thresholds[index] || 0.5;
+    const node = dom.flowHeads && dom.flowHeads.querySelector(`[data-head="${head}"]`);
+    if (!node) {
+      continue;
+    }
+    node.classList.toggle("hit", score >= threshold);
+    node.querySelector("small").textContent = `${score.toFixed(2)} / ${threshold.toFixed(2)}`;
+  }
+}
+
+function updateGateScore(score, threshold) {
+  if (!dom.gateScore) {
+    return;
+  }
+  if (score === null || threshold === null) {
+    dom.gateScore.textContent = "waiting";
+    return;
+  }
+  dom.gateScore.textContent = `${score.toFixed(2)} / ${threshold.toFixed(2)}`;
 }
 
 function updateBestMatch(match, matched) {
@@ -640,13 +773,23 @@ function prettyHead(head) {
     .replace(/^is Interesting$/, "is interesting");
 }
 
+function compactHead(head) {
+  return prettyHead(head)
+    .replace(" intent", "")
+    .replace(" query", "")
+    .replace("Agent", "agent");
+}
+
 function resetDemo() {
   stopRecording(false);
   state.session = null;
   state.metadata = null;
   state.provider = null;
   state.chunks = [];
+  state.lastScores = [];
   renderHeadCards();
+  renderFlowHeads();
+  drawIdleScope();
   updateRuntimeBadge("Runtime: not loaded", false);
   updateRecordingBadge("Mic: idle", false);
   setInferenceStatus("Inference: idle");

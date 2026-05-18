@@ -26,10 +26,15 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "onnxruntime-web" in index
     assert "./assets/inherent.onnx" in index
     assert "./assets/inherent.onnx.metadata.json" in index
+    assert "./assets/theme-reference.svg" in index
+    assert 'id="scope"' in index
+    assert 'id="flowHeads"' in index
     assert "webgpu" in app
     assert "wasm" in app
     assert "mel_spectrogram" in app
     assert "intent_output" in app
+    assert "drawScope" in app
+    assert "renderFlowHeads" in app
 
 
 def test_browser_demo_embeds_runtime_head_order():

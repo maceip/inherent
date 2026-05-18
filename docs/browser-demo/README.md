@@ -21,6 +21,22 @@ uses `audio_frontend.tflite`; treat browser scores as demo/runtime-validation
 signals unless the JavaScript frontend has been parity-checked against that
 TFLite frontend for your model.
 
+## Page theme and live UI
+
+The page uses the supplied dojo/arcade frame as its art direction: red walls,
+yellow-green floor lanes, pink/purple trim, chunky outlined cards, and a
+hand-drawn theme reference at `assets/theme-reference.svg`. Replace that SVG
+with a production image asset if you want the exact uploaded frame served by
+GitHub Pages.
+
+While recording, the UI shows:
+
+- a live oscilloscope canvas fed from the browser microphone PCM samples,
+- the `mic -> mel -> gate -> heads` audio flow,
+- 12 intent-head nodes that light up when their score crosses the model
+  metadata threshold,
+- the full 13-head score table, including the `isInteresting` gate.
+
 ## Prepare artifacts
 
 Export an ONNX artifact and metadata sidecar:

@@ -8,15 +8,22 @@
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   </head>
   <body>
+    <div class="theme-backdrop" aria-hidden="true"></div>
     <main class="shell">
       <header class="hero">
-        <p class="eyebrow">Inherent ONNX Runtime Web demo</p>
-        <h1>Record speech and see which output head matches.</h1>
-        <p>
-          This static GitHub Pages app loads a trained ONNX export, records
-          microphone audio in the browser, converts it to a 128-bin
-          mel-spectrogram, and visualizes the 13 Inherent head scores.
-        </p>
+        <div class="hero-copy">
+          <p class="eyebrow">Inherent chop-chop mic dojo</p>
+          <h1>Record speech and watch the intent heads light up.</h1>
+          <p>
+            This static GitHub Pages app loads a trained ONNX export, records
+            microphone audio in the browser, converts it to a 128-bin
+            mel-spectrogram, and visualizes the live Inherent head scores.
+          </p>
+        </div>
+        <div class="hero-card" aria-hidden="true">
+          <img src="./assets/theme-reference.svg" alt="">
+          <span class="hero-sticker">mic -> mel -> heads</span>
+        </div>
       </header>
 
       <section class="panel">
@@ -71,7 +78,52 @@
         <div class="meter" aria-label="Input level">
           <span id="levelFill"></span>
         </div>
+        <div class="scope-wrap">
+          <div class="scope-label">
+            <span>live oscilloscope</span>
+            <span>browser mic waveform</span>
+          </div>
+          <canvas id="scope" width="960" height="220" aria-label="Live microphone oscilloscope"></canvas>
+        </div>
         <p id="recordingStatus" class="status">Load a model before recording.</p>
+      </section>
+
+      <section class="panel flow-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Audio flow</h2>
+            <p>Live audio flows from mic to mel frames, then branches into the 12 intent heads.</p>
+          </div>
+          <span class="badge">12 intent heads</span>
+        </div>
+
+        <div class="flow-route" aria-label="Audio flow from microphone to model heads">
+          <div class="flow-step active">
+            <span class="flow-icon">|_|</span>
+            <strong>mic</strong>
+            <small>raw PCM</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step">
+            <span class="flow-icon">~~~</span>
+            <strong>mel</strong>
+            <small>128 bins</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step gate-step">
+            <span class="flow-icon">{}</span>
+            <strong>gate</strong>
+            <small id="gateScore">waiting</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step heads-step">
+            <span class="flow-icon">{}</span>
+            <strong>heads</strong>
+            <small>intent hits</small>
+          </div>
+        </div>
+
+        <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
       </section>
 
       <section class="panel result-panel">
@@ -131,6 +183,14 @@
           <span></span>
         </div>
         <div class="bar"><i></i></div>
+      </article>
+    </template>
+
+    <template id="flowHeadTemplate">
+      <article class="flow-head">
+        <span class="node-light"></span>
+        <strong></strong>
+        <small></small>
       </article>
     </template>
 
