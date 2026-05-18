@@ -79,6 +79,9 @@ def _result_to_json(result) -> dict:
         "test_gates_json": None if result.test_gates_json is None else str(result.test_gates_json),
         "export_dir": None if result.export_dir is None else str(result.export_dir),
         "export_results": result.export_results,
+        "threshold_calibration_reports": None
+        if result.threshold_calibration_reports is None
+        else [str(path) for path in result.threshold_calibration_reports],
         "model_group_json": None if result.model_group_json is None else str(result.model_group_json),
     }
 
