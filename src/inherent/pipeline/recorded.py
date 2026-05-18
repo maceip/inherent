@@ -30,6 +30,7 @@ from .. import HEAD_ORDER
 from ..config import Config
 from ..data.intents import load_synthetic_manifest
 from ..data.labeling import normalize_audio_manifest, split_label_manifest, validate_label_manifest
+from ..data.labeling import validate_split_label_coverage
 from ..data.manifest import RawAudioLabelSample, from_intent, write_raw_audio_manifest
 from ..data.schema import ALLOWED_RAW_LABEL_COLUMNS
 from ..eval.evaluate import evaluate_checkpoint, format_metrics
@@ -112,6 +113,8 @@ def build_recorded_library(
         split_dir,
         previous_model_group=previous_group,
     )
+    split_label_coverage = validate_split_label_coverage(split_manifests)
+    (run / "split_label_coverage.json").write_text(json.dumps(split_label_coverage, indent=2))
     split_identity_index = _write_split_identity_index(split_manifests, run / "split_identity_index.json")
 
     raw_dir = work / "raw"

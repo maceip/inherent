@@ -160,6 +160,59 @@ def split_label_manifest(
     return counts
 
 
+def split_label_coverage_report(split_manifests: dict[str, str | Path]) -> dict:
+    """Summarize per-head positive/negative coverage for train/eval/test splits."""
+
+    report = {
+        "ok": True,
+        "splits": {},
+        "issues": [],
+    }
+    for split, manifest in split_manifests.items():
+        rows = _read_rows(Path(manifest).expanduser())
+        head_counts = {}
+        for head in HEAD_ORDER:
+            positives = 0
+            negatives = 0
+            for _, row in rows:
+                value = row[head].strip()
+                if value == "1":
+                    positives += 1
+                elif value == "0":
+                    negatives += 1
+                else:
+                    raise ValueError(f"{manifest} has invalid {head} label {value!r}")
+            head_counts[head] = {
+                "positive": positives,
+                "negative": negatives,
+            }
+            if positives < 1:
+                report["issues"].append(
+                    {"split": split, "head": head, "kind": "missing_positive", "count": positives}
+                )
+            if negatives < 1:
+                report["issues"].append(
+                    {"split": split, "head": head, "kind": "missing_negative", "count": negatives}
+                )
+        report["splits"][split] = {
+            "rows": len(rows),
+            "heads": head_counts,
+        }
+    report["ok"] = not report["issues"]
+    return report
+
+
+def validate_split_label_coverage(split_manifests: dict[str, str | Path]) -> dict:
+    report = split_label_coverage_report(split_manifests)
+    if not report["ok"]:
+        first = report["issues"][0]
+        raise ValueError(
+            "split label coverage is incomplete: "
+            f"split={first['split']} head={first['head']} kind={first['kind']}"
+        )
+    return report
+
+
 def inspect_audio_file(path: str | Path) -> dict:
     audio = load_audio_any(path)
     return {
