@@ -1,5 +1,6 @@
 import json
 import sys
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import numpy as np
@@ -7,9 +8,10 @@ import pytest
 import torch
 
 from inherent import HEAD_ORDER, THRESHOLD_KEYS
-from inherent.config import Config, ExportConfig
+from inherent.config import Config, ExportConfig, TrainingConfig
 from inherent.export import core, tflite
 from inherent.export.core import representative_sample_indexes, validate_tflite_io_contract
+from inherent.export.core import load_export_model
 from inherent.export.litert import convert_saved_model_to_tflite, validate_tflite_export_config
 
 
@@ -94,6 +96,24 @@ def test_tflite_export_requires_static_max_frames():
 
     with pytest.raises(ValueError, match=r"model.max_frames \(3000\); got None"):
         validate_tflite_export_config(Config(export=ExportConfig(onnx_static_frames=None)))
+
+
+def test_export_rejects_checkpoint_with_different_padding_mode(tmp_path):
+    checkpoint = tmp_path / "best.pt"
+    torch.save(
+        {
+            "model_state_dict": {},
+            "head_order": list(HEAD_ORDER),
+            "config": {
+                "model": asdict(Config().model),
+                "training": asdict(TrainingConfig(padding="dynamic")),
+            },
+        },
+        checkpoint,
+    )
+
+    with pytest.raises(ValueError, match="training.padding"):
+        load_export_model(checkpoint, Config(training=TrainingConfig(padding="runtime_static")))
 
 
 class _LabelOnlyDataset:

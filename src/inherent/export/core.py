@@ -44,6 +44,13 @@ def load_export_model(checkpoint_path: Path, cfg: Config):
     checkpoint_model_cfg = checkpoint["config"].get("model")
     if checkpoint_model_cfg != asdict(cfg.model):
         raise ValueError("checkpoint model config does not match export config")
+    checkpoint_training_cfg = checkpoint["config"].get("training", {})
+    checkpoint_padding = checkpoint_training_cfg.get("padding")
+    if checkpoint_padding != cfg.training.padding:
+        raise ValueError(
+            "checkpoint training.padding does not match export config: "
+            f"checkpoint={checkpoint_padding!r}, export={cfg.training.padding!r}"
+        )
 
     model = JointAudioIntentModel(cfg.model)
     model.load_state_dict(checkpoint["model_state_dict"])

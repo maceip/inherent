@@ -225,7 +225,7 @@ def test_mlx_backend_exports_weight_package(tmp_path):
         {
             "model_state_dict": model.state_dict(),
             "head_order": list(HEAD_ORDER),
-            "config": {"model": cfg.model.__dict__},
+            "config": {"model": cfg.model.__dict__, "training": cfg.training.__dict__},
         },
         checkpoint,
     )
