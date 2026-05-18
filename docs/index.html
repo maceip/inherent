@@ -87,6 +87,56 @@
         </div>
 
         <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
+
+        <div class="route-labeler" aria-labelledby="routeLabelTitle">
+          <div class="route-labeler-heading">
+            <div>
+              <h3 id="routeLabelTitle">Donate labeled speech from the route</h3>
+              <p>
+                Use the chunky button on a head to label the last utterance for
+                that specific route. Examples stay local until you export JSONL.
+              </p>
+            </div>
+            <span id="feedbackCount" class="badge">0 saved</span>
+          </div>
+
+          <div class="feedback-grid route-feedback-grid">
+            <fieldset>
+              <legend>Label mode</legend>
+              <label class="radio-row">
+                <input type="radio" name="feedbackKind" value="positive" checked>
+                Positive: this head should fire
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="feedbackKind" value="negative">
+                Negative: this head should not fire
+              </label>
+            </fieldset>
+
+            <label>
+              Labeled utterance text or note
+              <textarea id="feedbackTranscript" rows="3" maxlength="240" placeholder="Example: add milk to my shopping list"></textarea>
+            </label>
+          </div>
+
+          <label class="consent-row">
+            <input id="feedbackConsent" type="checkbox">
+            I confirm this is my own recording and can be used to improve the training set.
+          </label>
+
+          <div class="quality-card">
+            <strong>Light validation gates</strong>
+            <ul id="qualityGates" class="quality-gates" aria-live="polite">
+              <li>Record a short clip after the model is ready.</li>
+            </ul>
+          </div>
+
+          <div class="actions">
+            <button id="downloadFeedback" type="button" class="secondary">Download JSONL</button>
+            <button id="clearFeedback" type="button" class="danger">Clear saved</button>
+          </div>
+          <p id="feedbackStatus" class="status">Record a clip, then press a head's donate button. Saved examples stay in this browser until exported.</p>
+        </div>
       </section>
 
       <section class="panel result-panel">
@@ -104,62 +154,6 @@
         </div>
 
         <div id="heads" class="heads" aria-live="polite"></div>
-      </section>
-
-      <section class="panel training-panel" aria-labelledby="trainingTitle">
-        <div class="panel-heading">
-          <div>
-            <h2 id="trainingTitle">Training feedback</h2>
-            <p>
-              Mark the last recording as a useful positive or negative example.
-              The page runs light quality checks before saving anything locally.
-            </p>
-          </div>
-          <span id="feedbackCount" class="badge">0 saved</span>
-        </div>
-
-        <div class="quality-card">
-          <strong>Light validation gates</strong>
-          <ul id="qualityGates" class="quality-gates" aria-live="polite">
-            <li>Record a short clip after the model is ready.</li>
-          </ul>
-        </div>
-
-        <div class="feedback-grid">
-          <fieldset>
-            <legend>Example type</legend>
-            <label class="radio-row">
-              <input type="radio" name="feedbackKind" value="positive" checked>
-              Positive: these heads should fire
-            </label>
-            <label class="radio-row">
-              <input type="radio" name="feedbackKind" value="negative">
-              Negative: these heads should not fire
-            </label>
-          </fieldset>
-
-          <label>
-            What did you say or what should this example teach?
-            <textarea id="feedbackTranscript" rows="4" maxlength="240" placeholder="Example: add milk to my shopping list"></textarea>
-          </label>
-        </div>
-
-        <div>
-          <strong class="mini-heading">Specific intent heads</strong>
-          <div id="feedbackHeads" class="feedback-heads"></div>
-        </div>
-
-        <label class="consent-row">
-          <input id="feedbackConsent" type="checkbox">
-          I confirm this is my own recording and can be used to improve the training set.
-        </label>
-
-        <div class="actions">
-          <button id="saveFeedback" type="button">Save validated example</button>
-          <button id="downloadFeedback" type="button" class="secondary">Download JSONL</button>
-          <button id="clearFeedback" type="button" class="danger">Clear saved</button>
-        </div>
-        <p id="feedbackStatus" class="status">Record a clip, then label it here. Saved examples stay in this browser until exported.</p>
       </section>
 
       <section class="panel backend-panel">
@@ -184,9 +178,14 @@
 
     <template id="flowHeadTemplate">
       <article class="flow-head">
-        <span class="node-light"></span>
-        <strong></strong>
-        <small></small>
+        <div class="flow-head-main">
+          <span class="node-light"></span>
+          <strong></strong>
+          <small></small>
+        </div>
+        <button class="donate-head-button" type="button">
+          <span>Donate label</span>
+        </button>
       </article>
     </template>
 

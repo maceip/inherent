@@ -80,6 +80,7 @@ const state = {
   hannWindow: null,
   lastScores: [],
   lastRecordingStats: null,
+  pendingFeedbackHead: null,
   feedbackExamples: loadFeedbackExamples(),
 };
 
@@ -108,12 +109,10 @@ const dom = {
   flowHeads: document.getElementById("flowHeads"),
   gateScore: document.getElementById("gateScore"),
   qualityGates: document.getElementById("qualityGates"),
-  feedbackHeads: document.getElementById("feedbackHeads"),
   feedbackTranscript: document.getElementById("feedbackTranscript"),
   feedbackConsent: document.getElementById("feedbackConsent"),
   feedbackStatus: document.getElementById("feedbackStatus"),
   feedbackCount: document.getElementById("feedbackCount"),
-  saveFeedback: document.getElementById("saveFeedback"),
   downloadFeedback: document.getElementById("downloadFeedback"),
   clearFeedback: document.getElementById("clearFeedback"),
   headTemplate: document.getElementById("headTemplate"),
@@ -126,7 +125,6 @@ if (globalThis.ort) {
 
 renderHeadCards();
 renderFlowHeads();
-renderFeedbackHeads();
 renderFeedbackCount();
 updateQualityGates();
 drawIdleScope();
@@ -142,9 +140,6 @@ function wireEvents() {
   }
   dom.startRecording.addEventListener("click", () => startRecording());
   dom.stopRecording.addEventListener("click", () => stopRecording(true));
-  if (dom.saveFeedback) {
-    dom.saveFeedback.addEventListener("click", () => saveFeedbackExample());
-  }
   if (dom.downloadFeedback) {
     dom.downloadFeedback.addEventListener("click", () => downloadFeedbackExamples());
   }
@@ -193,7 +188,6 @@ async function loadModel(options = {}) {
     updateModelProgress(100, "Ready", "ready");
     renderHeadCards();
     renderFlowHeads();
-    renderFeedbackHeads();
     updateQualityGates();
     updateRuntimeBadge(`Model: ${state.provider}`, true);
     dom.startRecording.disabled = false;
@@ -333,6 +327,7 @@ async function startRecording() {
     state.processorNode = state.audioContext.createScriptProcessor(4096, 1, 1);
     state.chunks = [];
     state.lastRecordingStats = null;
+    state.pendingFeedbackHead = null;
     state.recording = true;
     updateQualityGates();
 
@@ -772,28 +767,10 @@ function renderFlowHeads() {
     node.dataset.head = head;
     node.querySelector("strong").textContent = compactHead(head);
     node.querySelector("small").textContent = "0.00";
+    node.querySelector(".donate-head-button").addEventListener("click", () => donateHeadLabel(head));
     dom.flowHeads.appendChild(node);
   }
   updateGateScore(null, null);
-}
-
-function renderFeedbackHeads() {
-  if (!dom.feedbackHeads) {
-    return;
-  }
-  dom.feedbackHeads.replaceChildren();
-  for (const head of headOrder().slice(1)) {
-    const label = document.createElement("label");
-    label.className = "feedback-head-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = head;
-    input.addEventListener("change", () => updateQualityGates());
-    const span = document.createElement("span");
-    span.textContent = compactHead(head);
-    label.append(input, span);
-    dom.feedbackHeads.append(label);
-  }
 }
 
 function renderScores(scores) {
@@ -934,6 +911,18 @@ function updateQualityGates() {
   }
 }
 
+function donateHeadLabel(head) {
+  state.pendingFeedbackHead = head;
+  const validation = validateFeedbackExample();
+  updateQualityGates();
+  if (!validation.passed) {
+    dom.feedbackStatus.textContent =
+      `Cannot save ${compactHead(head)} yet. Complete the validation gates first.`;
+    return;
+  }
+  saveFeedbackExample();
+}
+
 function validateFeedbackExample() {
   const stats = state.lastRecordingStats;
   const kind = feedbackKind();
@@ -970,7 +959,7 @@ function validateFeedbackExample() {
     },
     {
       pass: kind === "negative" || selectedHeads.length > 0,
-      text: "positive examples choose at least one intent head",
+      text: "a route head donate button was selected",
     },
     {
       pass: Boolean(dom.feedbackConsent && dom.feedbackConsent.checked),
@@ -1065,10 +1054,7 @@ function feedbackKind() {
 }
 
 function selectedFeedbackHeads() {
-  if (!dom.feedbackHeads) {
-    return [];
-  }
-  return Array.from(dom.feedbackHeads.querySelectorAll("input:checked")).map((input) => input.value);
+  return state.pendingFeedbackHead ? [state.pendingFeedbackHead] : [];
 }
 
 function feedbackTranscript() {
@@ -1203,9 +1189,9 @@ function resetDemo() {
   state.chunks = [];
   state.lastScores = [];
   state.lastRecordingStats = null;
+  state.pendingFeedbackHead = null;
   renderHeadCards();
   renderFlowHeads();
-  renderFeedbackHeads();
   drawIdleScope();
   updateQualityGates();
   updateRuntimeBadge("Runtime: not loaded", false);
