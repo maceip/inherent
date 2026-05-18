@@ -33,7 +33,7 @@ from ..data.labeling import normalize_audio_manifest, split_label_manifest, vali
 from ..data.labeling import validate_split_label_coverage
 from ..data.manifest import RawAudioLabelSample, from_intent, write_raw_audio_manifest
 from ..data.schema import ALLOWED_RAW_LABEL_COLUMNS
-from ..eval.evaluate import evaluate_checkpoint, format_metrics
+from ..eval.evaluate import evaluate_checkpoint, evaluate_gates, format_metrics
 from ..eval.parity import _labels, _score_tflite
 from ..eval.thresholds import apply_thresholds_to_metadata, calibrate_thresholds
 from ..export.registry import get_backend, list_backends
@@ -55,6 +55,10 @@ class RecordedBuildResult:
     checkpoint: Path | None
     metrics_json: Path | None
     metrics_csv: Path | None
+    eval_gates_json: Path | None
+    test_metrics_json: Path | None
+    test_metrics_csv: Path | None
+    test_gates_json: Path | None
     export_dir: Path | None
     export_results: list[dict] | None
     threshold_calibration_reports: list[Path] | None
@@ -143,6 +147,10 @@ def build_recorded_library(
     checkpoint: Path | None = None
     metrics_json: Path | None = None
     metrics_csv: Path | None = None
+    eval_gates_json: Path | None = None
+    test_metrics_json: Path | None = None
+    test_metrics_csv: Path | None = None
+    test_gates_json: Path | None = None
     export_dir: Path | None = None
     export_results: list[dict] | None = None
     threshold_calibration_reports: list[Path] | None = None
@@ -166,6 +174,25 @@ def build_recorded_library(
         metrics_csv = run / "eval_metrics.csv"
         metrics_json.write_text(json.dumps(metrics, indent=2))
         metrics_csv.write_text(format_metrics(metrics) + "\n")
+        eval_gates_json = run / "eval_gates.json"
+        eval_gates = evaluate_gates(metrics, runtime_cfg.eval.pass_threshold)
+        eval_gates_json.write_text(json.dumps(eval_gates, indent=2))
+        _require_gate_passed(eval_gates, "eval", eval_gates_json)
+
+        test_metrics = evaluate_checkpoint(
+            checkpoint,
+            mel_manifests["test"],
+            batch_size=runtime_cfg.training.batch_size,
+            device=eval_device,
+        )
+        test_metrics_json = run / "test_metrics.json"
+        test_metrics_csv = run / "test_metrics.csv"
+        test_metrics_json.write_text(json.dumps(test_metrics, indent=2))
+        test_metrics_csv.write_text(format_metrics(test_metrics) + "\n")
+        test_gates_json = run / "test_gates.json"
+        test_gates = evaluate_gates(test_metrics, runtime_cfg.eval.pass_threshold)
+        test_gates_json.write_text(json.dumps(test_gates, indent=2))
+        _require_gate_passed(test_gates, "test", test_gates_json)
     if export:
         if checkpoint is None:
             checkpoint = _select_checkpoint(run)
@@ -200,6 +227,10 @@ def build_recorded_library(
                 "checkpoint": checkpoint,
                 "metrics_json": metrics_json,
                 "metrics_csv": metrics_csv,
+                "eval_gates_json": eval_gates_json,
+                "test_metrics_json": test_metrics_json,
+                "test_metrics_csv": test_metrics_csv,
+                "test_gates_json": test_gates_json,
                 "export_dir": export_dir,
                 "export_results": export_results,
                 "threshold_calibration_reports": threshold_calibration_reports,
@@ -219,6 +250,10 @@ def build_recorded_library(
         checkpoint=checkpoint,
         metrics_json=metrics_json,
         metrics_csv=metrics_csv,
+        eval_gates_json=eval_gates_json,
+        test_metrics_json=test_metrics_json,
+        test_metrics_csv=test_metrics_csv,
+        test_gates_json=test_gates_json,
         export_dir=export_dir,
         export_results=export_results,
         threshold_calibration_reports=threshold_calibration_reports,
@@ -390,6 +425,18 @@ def _tflite_artifact_for_threshold_calibration(result: dict) -> Path | None:
 def _safe_report_name(value: str) -> str:
     safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.lower())
     return safe.strip("_") or "export"
+
+
+def _require_gate_passed(gates: dict, split: str, gate_path: Path) -> None:
+    if gates.get("passed") is True:
+        return
+    failed = [
+        name
+        for name, check in gates.get("checks", {}).items()
+        if check.get("passed") is False
+    ]
+    first = failed[0] if failed else "unknown"
+    raise ValueError(f"{split} release gates failed: first_failed={first}; report={gate_path}")
 
 
 def _validate_label_report(
@@ -675,6 +722,10 @@ def _write_model_group_json(
         "checkpoint": path_or_none(result_paths["checkpoint"]),
         "metrics_json": path_or_none(result_paths["metrics_json"]),
         "metrics_csv": path_or_none(result_paths["metrics_csv"]),
+        "eval_gates_json": path_or_none(result_paths["eval_gates_json"]),
+        "test_metrics_json": path_or_none(result_paths["test_metrics_json"]),
+        "test_metrics_csv": path_or_none(result_paths["test_metrics_csv"]),
+        "test_gates_json": path_or_none(result_paths["test_gates_json"]),
         "export_dir": path_or_none(result_paths["export_dir"]),
         "export_results": result_paths["export_results"],
         "threshold_calibration_reports": [

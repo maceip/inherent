@@ -89,6 +89,9 @@ def test_recorded_library_build_orchestrates_production_components(tmp_path, mon
     assert result.mel_manifests["eval"].is_file()
     assert result.checkpoint == tmp_path / "run" / "best.pt"
     assert json.loads(result.metrics_json.read_text())["isInteresting"]["auc"] == 1.0
+    assert json.loads(result.eval_gates_json.read_text())["passed"] is True
+    assert json.loads(result.test_metrics_json.read_text())["isInteresting"]["auc"] == 1.0
+    assert json.loads(result.test_gates_json.read_text())["passed"] is True
     assert (result.export_dir / "inherent.tflite").is_file()
     assert result.export_results[0]["backend"] == "tflite"
     metadata = json.loads((result.export_dir / "inherent.metadata.json").read_text())
@@ -98,6 +101,44 @@ def test_recorded_library_build_orchestrates_production_components(tmp_path, mon
     assert result.threshold_calibration_reports[0].is_file()
     resolved = json.loads((tmp_path / "run" / "resolved_config.json").read_text())
     assert resolved["training"]["train_manifest"] == str(result.mel_manifests["train"])
+
+
+def test_recorded_library_blocks_export_when_eval_gates_fail(tmp_path, monkeypatch):
+    labels = _write_dummy_recorded_library(tmp_path / "library")
+
+    def fake_train(cfg, output_dir, *, init_checkpoint=None):
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        (Path(output_dir) / "best.pt").write_bytes(b"checkpoint")
+
+    def fake_evaluate(checkpoint_path, eval_manifest, *, batch_size, device):
+        metrics = {
+            head: {"auc": 1.0, "eer": 0.0, "fpr_at_recall_95": 0.0}
+            for head in HEAD_ORDER
+        }
+        metrics["hasCallingAgentIntent"]["auc"] = 0.1
+        return metrics
+
+    def fake_export_backends(*, checkpoint, cfg, export_dir, backend_names):
+        raise AssertionError("export should not run when eval gates fail")
+
+    monkeypatch.setattr(recorded, "materialize_mel_manifest", _fake_materialize_mel_manifest)
+    monkeypatch.setattr(recorded, "train_model", fake_train)
+    monkeypatch.setattr(recorded, "evaluate_checkpoint", fake_evaluate)
+    monkeypatch.setattr(recorded, "_export_backends", fake_export_backends)
+
+    with pytest.raises(ValueError, match="eval release gates failed"):
+        recorded.build_recorded_library(
+            cfg=Config.load("configs/smoke.yaml"),
+            labels_manifest=labels,
+            work_dir=tmp_path / "work",
+            run_dir=tmp_path / "run",
+            frontend_model=tmp_path / "audio_frontend.tflite",
+            training_device="mps",
+            eval_device="cpu",
+            max_steps=4,
+        )
+
+    assert (tmp_path / "run" / "eval_gates.json").is_file()
 
 
 def test_recorded_library_rejects_split_leakage(tmp_path):
