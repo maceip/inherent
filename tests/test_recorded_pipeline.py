@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from inherent import HEAD_ORDER, INTENT_HEAD_ORDER
+from inherent import DEFAULT_THRESHOLDS_BY_KEY, HEAD_ORDER, INTENT_HEAD_ORDER
 from inherent.config import Config
 from inherent.data.schema import LABEL_TEMPLATE_COLUMNS, METADATA_COLUMNS
 from inherent.pipeline import recorded
@@ -48,12 +48,30 @@ def test_recorded_library_build_orchestrates_production_components(tmp_path, mon
         Path(export_dir).mkdir(parents=True, exist_ok=True)
         artifact = Path(export_dir) / "inherent.tflite"
         artifact.write_bytes(b"tflite")
-        return [{"backend": "tflite", "artifacts": {"tflite": str(artifact)}, "supported": True}]
+        metadata = Path(export_dir) / "inherent.metadata.json"
+        metadata.write_text(json.dumps({"default_thresholds": DEFAULT_THRESHOLDS_BY_KEY}))
+        return [
+            {
+                "backend": "tflite",
+                "artifacts": {"tflite": str(artifact)},
+                "metadata_path": str(metadata),
+                "supported": True,
+            }
+        ]
+
+    def fake_score_tflite(tflite_path, mel_manifest, limit=None):
+        rows = list(csv.DictReader(Path(mel_manifest).open()))
+        labels = np.array(
+            [[float(row[head]) for head in HEAD_ORDER] for row in rows],
+            dtype=np.float32,
+        )
+        return np.where(labels > 0.5, 0.8, 0.1).astype(np.float32)
 
     monkeypatch.setattr(recorded, "materialize_mel_manifest", fake_materialize_mel_manifest)
     monkeypatch.setattr(recorded, "train_model", fake_train)
     monkeypatch.setattr(recorded, "evaluate_checkpoint", fake_evaluate)
     monkeypatch.setattr(recorded, "_export_backends", fake_export_backends)
+    monkeypatch.setattr(recorded, "_score_tflite", fake_score_tflite)
 
     result = recorded.build_recorded_library(
         cfg=Config.load("configs/smoke.yaml"),
@@ -73,6 +91,11 @@ def test_recorded_library_build_orchestrates_production_components(tmp_path, mon
     assert json.loads(result.metrics_json.read_text())["isInteresting"]["auc"] == 1.0
     assert (result.export_dir / "inherent.tflite").is_file()
     assert result.export_results[0]["backend"] == "tflite"
+    metadata = json.loads((result.export_dir / "inherent.metadata.json").read_text())
+    assert metadata["default_thresholds"] != DEFAULT_THRESHOLDS_BY_KEY
+    assert metadata["threshold_calibration"]["score_source"] == "tflite_runtime_static"
+    assert result.threshold_calibration_reports
+    assert result.threshold_calibration_reports[0].is_file()
     resolved = json.loads((tmp_path / "run" / "resolved_config.json").read_text())
     assert resolved["training"]["train_manifest"] == str(result.mel_manifests["train"])
 

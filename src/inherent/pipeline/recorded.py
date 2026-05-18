@@ -34,6 +34,8 @@ from ..data.labeling import validate_split_label_coverage
 from ..data.manifest import RawAudioLabelSample, from_intent, write_raw_audio_manifest
 from ..data.schema import ALLOWED_RAW_LABEL_COLUMNS
 from ..eval.evaluate import evaluate_checkpoint, format_metrics
+from ..eval.parity import _labels, _score_tflite
+from ..eval.thresholds import apply_thresholds_to_metadata, calibrate_thresholds
 from ..export.registry import get_backend, list_backends
 from ..features import materialize_mel_manifest
 from ..training.train import train as train_model
@@ -55,6 +57,7 @@ class RecordedBuildResult:
     metrics_csv: Path | None
     export_dir: Path | None
     export_results: list[dict] | None
+    threshold_calibration_reports: list[Path] | None
     model_group_json: Path | None
 
 
@@ -142,6 +145,7 @@ def build_recorded_library(
     metrics_csv: Path | None = None
     export_dir: Path | None = None
     export_results: list[dict] | None = None
+    threshold_calibration_reports: list[Path] | None = None
     if train:
         train_model(
             runtime_cfg,
@@ -172,6 +176,11 @@ def build_recorded_library(
             export_dir=export_dir,
             backend_names=export_backends,
         )
+        threshold_calibration_reports = _calibrate_export_thresholds(
+            export_results=export_results,
+            eval_manifest=mel_manifests["eval"],
+            run_dir=run,
+        )
 
     model_group_json = None
     if group is not None:
@@ -193,6 +202,7 @@ def build_recorded_library(
                 "metrics_csv": metrics_csv,
                 "export_dir": export_dir,
                 "export_results": export_results,
+                "threshold_calibration_reports": threshold_calibration_reports,
             },
         )
 
@@ -211,6 +221,7 @@ def build_recorded_library(
         metrics_csv=metrics_csv,
         export_dir=export_dir,
         export_results=export_results,
+        threshold_calibration_reports=threshold_calibration_reports,
         model_group_json=model_group_json,
     )
 
@@ -318,6 +329,67 @@ def _selected_export_backends(cfg: Config, backend_names: Sequence[str] | None) 
     if not deduped:
         raise ValueError("at least one export backend is required")
     return deduped
+
+
+def _calibrate_export_thresholds(
+    *,
+    export_results: list[dict],
+    eval_manifest: Path,
+    run_dir: Path,
+) -> list[Path]:
+    labels = _labels(eval_manifest, limit=None)
+    reports: list[Path] = []
+    score_cache: dict[Path, dict] = {}
+    output_dir = run_dir / "threshold_calibration"
+    for result in export_results:
+        metadata_path_value = result.get("metadata_path")
+        if not metadata_path_value:
+            continue
+        metadata_path = Path(metadata_path_value).expanduser()
+        if not metadata_path.is_file():
+            continue
+        tflite_path = _tflite_artifact_for_threshold_calibration(result)
+        if tflite_path is None or not tflite_path.is_file():
+            continue
+        tflite_path = tflite_path.resolve()
+        if tflite_path not in score_cache:
+            scores = _score_tflite(tflite_path, eval_manifest, limit=None)
+            score_cache[tflite_path] = {
+                "mel_manifest": str(eval_manifest),
+                "rows": int(labels.shape[0]),
+                "score_source": "tflite_runtime_static",
+                "artifact": str(tflite_path),
+                **calibrate_thresholds(scores, labels, require_all_heads=True),
+            }
+        report = {
+            "backend": result.get("backend"),
+            "metadata_path": str(metadata_path),
+            **score_cache[tflite_path],
+        }
+        report_path = output_dir / f"{_safe_report_name(str(result.get('backend') or metadata_path.stem))}.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+
+        metadata = json.loads(metadata_path.read_text())
+        updated = apply_thresholds_to_metadata(metadata, report)
+        updated["threshold_calibration"]["report"] = str(report_path)
+        metadata_path.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\n")
+        reports.append(report_path)
+    return reports
+
+
+def _tflite_artifact_for_threshold_calibration(result: dict) -> Path | None:
+    artifacts = result.get("artifacts") or {}
+    for key in ("tflite", "tflite_source"):
+        value = artifacts.get(key)
+        if value:
+            return Path(value).expanduser()
+    return None
+
+
+def _safe_report_name(value: str) -> str:
+    safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.lower())
+    return safe.strip("_") or "export"
 
 
 def _validate_label_report(
@@ -605,6 +677,9 @@ def _write_model_group_json(
         "metrics_csv": path_or_none(result_paths["metrics_csv"]),
         "export_dir": path_or_none(result_paths["export_dir"]),
         "export_results": result_paths["export_results"],
+        "threshold_calibration_reports": [
+            str(path) for path in (result_paths["threshold_calibration_reports"] or [])
+        ],
     }
     output = group_dir / "model_group.json"
     output.parent.mkdir(parents=True, exist_ok=True)
