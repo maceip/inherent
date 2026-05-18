@@ -23,10 +23,10 @@ def test_backend_registry_lists_expected_backends():
 
 
 def test_export_config_accepts_backend_profiles():
-    cfg = ExportConfig(backend="litert", delegates=["cpu", "gpu", "tpu"], onnx_opset=18)
+    cfg = ExportConfig(backend="litert", delegates=["cpu", "gpu", "npu", "tpu"], onnx_opset=18)
 
     assert cfg.backend == "litert"
-    assert cfg.delegates == ["cpu", "gpu", "tpu"]
+    assert cfg.delegates == ["cpu", "gpu", "npu", "tpu"]
 
 
 def test_artifact_metadata_is_backend_aware(tmp_path):
@@ -60,11 +60,15 @@ def test_delegate_reports_explain_cpu_and_tpu_status(tmp_path):
     cfg = Config()
 
     cpu = _delegate_report("cpu", artifact, cfg)
+    npu = _delegate_report("npu", artifact, cfg)
     tpu = _delegate_report("tpu", artifact, cfg)
 
     assert cpu["status"] == "passed"
+    assert npu["status"] == "skipped"
+    assert npu["runtime_api"] == "LiteRT CompiledModel"
     assert tpu["status"] == "skipped"
-    assert "static" in tpu["reason"].lower()
+    assert "fixed-shape" in tpu["reason"].lower()
+    assert tpu["runtime_api"] == "Tensor ML SDK / LiteRT CompiledModel"
 
 
 def test_litertlm_backend_invokes_builder_and_writes_package(monkeypatch, tmp_path):

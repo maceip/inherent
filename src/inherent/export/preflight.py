@@ -98,12 +98,12 @@ def _command_check(name: str) -> dict[str, Any]:
 
 
 def _delegate_check(delegates: tuple[str, ...]) -> dict[str, Any]:
-    allowed = {"cpu", "gpu", "tpu", "all"}
+    allowed = {"cpu", "gpu", "npu", "tpu", "qualcomm", "mediatek", "intel", "google_tensor", "all"}
     normalized = tuple(delegate.lower() for delegate in delegates) or ("cpu",)
     unexpected = sorted(set(normalized) - allowed)
     if unexpected:
         return {"name": "delegates", "status": "failed", "reason": f"unsupported delegates: {unexpected}"}
-    expanded = ("cpu", "gpu", "tpu") if "all" in normalized else tuple(dict.fromkeys(normalized))
+    expanded = ("cpu", "gpu", "npu", "tpu") if "all" in normalized else tuple(dict.fromkeys(normalized))
     return {"name": "delegates", "status": "passed", "delegates": expanded}
 
 

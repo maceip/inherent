@@ -1,0 +1,71 @@
+model:
+  backbone: small_conformer
+  num_heads: 13
+  hidden_size: 64
+  num_layers: 1
+  num_attention_heads: 4
+  conv_kernel_size: 15
+  mel_bins: 128
+  max_frames: 3000
+
+data:
+  sample_rate: 16000
+  hop_ms: 20
+  mel_bins: 128
+  max_seconds: 60
+  directedness:
+    positives: []
+    negatives: []
+    positive_manifests: []
+    negative_manifests: []
+    labeled_manifests: []
+    max_public_samples_per_source: 100
+    noise_mix: []
+    snr_db_range: [0, 25]
+  intents:
+    public_sources: []
+    recorded: []
+    synthetic_manifests: []
+    public: {}
+    synthetic: {}
+
+training:
+  batch_size: 8
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  warmup_steps: 0
+  max_steps: 1000
+  eval_every_steps: 100
+  save_every_steps: 100
+  loss: focal_bce
+  focal_gamma: 1.0
+  class_weights: none
+  padding: runtime_static
+  train_manifest: artifacts/fixture-quality/mels_manifest.csv
+  eval_manifest: artifacts/fixture-quality/mels_manifest.csv
+  num_workers: 0
+  device: mps
+  seed: 1337
+
+export:
+  backend: tflite
+  delegates: [cpu, npu, tpu]
+  quantization: int8
+  representative_dataset_size: 64
+  target_size_mb: 50
+  output_path: artifacts/fixture-quality/export/inherent.tflite
+  metadata_path: artifacts/fixture-quality/export/inherent.metadata.json
+  onnx_path: artifacts/fixture-quality/export/inherent.onnx
+  onnx_metadata_path: artifacts/fixture-quality/export/inherent.onnx.metadata.json
+  mlx_dir: artifacts/fixture-quality/export/mlx
+  litertlm_path: artifacts/fixture-quality/export/inherent.litertlm
+  onnx_opset: 17
+  onnx_sample_frames: 50
+  onnx_static_frames: 3000
+  strict_tensor_names: false
+  parity_atol: 1.0e-4
+
+eval:
+  held_out_audio_dir: data/eval_recorded
+  metrics: []
+  pass_threshold: {}

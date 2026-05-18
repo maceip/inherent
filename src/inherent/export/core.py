@@ -131,10 +131,13 @@ def write_artifact_metadata(
             "export": asdict(cfg.export),
         },
     }
-    if artifact_format == "tflite" and artifact_path.is_file():
-        metadata["tflite_size_bytes"] = artifact_path.stat().st_size
     if extra:
         metadata.update(extra)
+    if artifact_format == "tflite" and artifact_path.is_file():
+        metadata["tflite_size_bytes"] = artifact_path.stat().st_size
+        tflite_io = inspect_tflite_io_contract(artifact_path)
+        validate_tflite_io_contract(tflite_io, cfg)
+        metadata["tflite_io"] = tflite_io
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2))
 
@@ -178,6 +181,64 @@ def validate_thresholds(default_thresholds: dict[str, float]) -> None:
     for key, value in default_thresholds.items():
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"default threshold {key} must be in [0, 1], got {value}")
+
+
+def inspect_tflite_io_contract(tflite_path: Path) -> dict[str, Any]:
+    try:
+        import numpy as np
+        import tensorflow as tf
+    except ImportError as exc:
+        raise RuntimeError("tensorflow and numpy are required to inspect TFLite metadata") from exc
+
+    interpreter = tf.lite.Interpreter(model_path=str(tflite_path), num_threads=1)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    if len(input_details) != 1:
+        raise ValueError(f"TFLite model must have one input tensor, got {len(input_details)}")
+    if len(output_details) != 1:
+        raise ValueError(f"TFLite model must have one output tensor, got {len(output_details)}")
+
+    input_detail = input_details[0]
+    output_detail = output_details[0]
+    return {
+        "input_name": str(input_detail["name"]),
+        "input_shape": [int(dim) for dim in input_detail["shape"]],
+        "input_dtype": np.dtype(input_detail["dtype"]).name,
+        "output_name": str(output_detail["name"]),
+        "output_shape": [int(dim) for dim in output_detail["shape"]],
+        "output_dtype": np.dtype(output_detail["dtype"]).name,
+    }
+
+
+def validate_tflite_io_contract(tflite_io: dict[str, Any], cfg: Config) -> None:
+    input_shape = _shape_from_contract(tflite_io, "input_shape")
+    output_shape = _shape_from_contract(tflite_io, "output_shape")
+    input_dtype = str(tflite_io.get("input_dtype", ""))
+    output_dtype = str(tflite_io.get("output_dtype", ""))
+
+    expected_input = (1, cfg.model.max_frames, cfg.model.mel_bins)
+    expected_output = (1, len(HEAD_ORDER))
+    if input_shape != expected_input:
+        raise ValueError(
+            "TFLite input shape must match metadata model.max_frames: "
+            f"expected {list(expected_input)}, got {list(input_shape)}"
+        )
+    if input_dtype != "float32":
+        raise TypeError(f"TFLite input dtype must be float32, got {input_dtype}")
+    if output_shape != expected_output:
+        raise ValueError(f"TFLite output shape must be {list(expected_output)}, got {list(output_shape)}")
+    if output_dtype != "float32":
+        raise TypeError(f"TFLite output dtype must be float32, got {output_dtype}")
+
+
+def _shape_from_contract(tflite_io: dict[str, Any], key: str) -> tuple[int, ...]:
+    if key not in tflite_io:
+        raise ValueError(f"TFLite IO contract missing {key}")
+    try:
+        return tuple(int(dim) for dim in tflite_io[key])
+    except TypeError as exc:
+        raise ValueError(f"TFLite IO contract {key} must be a sequence of ints") from exc
 
 
 def artifact_path(output_dir: Path, configured: str, default_name: str) -> Path:

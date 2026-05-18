@@ -61,12 +61,18 @@ class MelManifestDataset(Dataset[tuple[torch.Tensor, torch.Tensor, int]]):
         return torch.tensor([row.labels for row in self.rows], dtype=torch.float32)
 
 
-def collate_mel_batches(samples: Iterable[tuple[torch.Tensor, torch.Tensor, int]]) -> MelBatch:
+def collate_mel_batches(
+    samples: Iterable[tuple[torch.Tensor, torch.Tensor, int]],
+    *,
+    fixed_frames: int | None = None,
+) -> MelBatch:
     sample_list = list(samples)
     if not sample_list:
         raise ValueError("cannot collate an empty batch")
     lengths = torch.tensor([sample[2] for sample in sample_list], dtype=torch.long)
-    max_len = int(lengths.max().item())
+    max_len = int(lengths.max().item()) if fixed_frames is None else fixed_frames
+    if fixed_frames is not None and int(lengths.max().item()) > fixed_frames:
+        raise ValueError(f"sample length exceeds fixed_frames={fixed_frames}")
     mel_bins = sample_list[0][0].shape[1]
     mel = torch.zeros(len(sample_list), max_len, mel_bins, dtype=torch.float32)
     targets = torch.zeros(len(sample_list), NUM_HEADS, dtype=torch.float32)
@@ -90,6 +96,29 @@ def compute_balanced_pos_weight(dataset: MelManifestDataset) -> torch.Tensor:
             f"missing_positive={missing_positive}, missing_negative={missing_negative}"
         )
     return negatives / positives
+
+
+def compute_label_balanced_sample_weights(dataset: MelManifestDataset) -> torch.Tensor:
+    """Per-row weights that raise exposure for rare positive heads.
+
+    This is intentionally based only on the manifest labels. It does not look at
+    model predictions, so it is deterministic and safe to use before training.
+    """
+    labels = dataset.label_matrix()
+    positives = labels.sum(dim=0)
+    missing_positive = [HEAD_ORDER[i] for i, value in enumerate(positives.tolist()) if value == 0]
+    if missing_positive:
+        raise ValueError(f"label-balanced sampling requires positives for every head: {missing_positive}")
+
+    inverse_positive = labels.shape[0] / positives
+    positive_mass = labels * inverse_positive.unsqueeze(0)
+    active_counts = labels.sum(dim=1).clamp(min=1.0)
+    weights = positive_mass.sum(dim=1) / active_counts
+    negative_only = labels.sum(dim=1) == 0
+    if negative_only.any():
+        weights[negative_only] = float(labels.shape[0]) / float(negative_only.sum().item())
+    weights = torch.sqrt(weights.clamp(min=1e-6))
+    return weights / weights.mean()
 
 
 def _read_manifest(path: Path) -> list[MelManifestRow]:

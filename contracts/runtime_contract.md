@@ -10,6 +10,9 @@ The model contract is backend-independent. Every export backend must preserve:
 - output tensor semantics: `intent_output`, `[1, 13]`, `float32`
 - output head order and threshold keys below
 
+For the Android TFLite/LiteRT artifact, `T` is fixed in the binary to 3000.
+Shorter frontend outputs must be zero-padded before invocation.
+
 ## TFLite/LiteRT Artifact
 
 A single TFLite file plus a metadata sidecar:
@@ -34,9 +37,9 @@ Additional export backends can produce:
 
 | Name | Shape | dtype | Semantics |
 |---|---|---|---|
-| `mel_spectrogram` | `[1, T, 128]` where `1 <= T <= 3000` | `float32` | Output of cosmo's existing `audio_frontend.tflite`. 128-bin mel at 20 ms hop. Matches the EdgeTPU teacher's input contract exactly. |
+| `mel_spectrogram` | `[1, 3000, 128]` | `float32` | Output of cosmo's existing `audio_frontend.tflite`, zero-padded to 3000 frames when shorter. 128-bin mel at 20 ms hop. Matches the EdgeTPU teacher's input contract exactly. |
 
-The Android side runs the existing `audio_frontend.tflite` first, then feeds its output here. **Do not change the input contract** — it has to stay drop-in-compatible with cosmo's frontend.
+The Android side runs the existing `audio_frontend.tflite` first, then feeds its output here. **Do not change the input contract** — it has to stay drop-in-compatible with cosmo's frontend. Do not add a raw-audio input or a padding-mask input on this path.
 
 ## Output tensor
 

@@ -75,6 +75,7 @@ export:
   litertlm_path: artifacts/inherent.litertlm
   onnx_opset: 17
   onnx_sample_frames: 50
+  onnx_static_frames: 3000
   parity_atol: 1.0e-4
 
 eval:

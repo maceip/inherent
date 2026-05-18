@@ -8,13 +8,14 @@ frontend so training/eval features match runtime features.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 
 from .. import HEAD_ORDER
 from ..config import RUNTIME_MAX_FRAMES, RUNTIME_MEL_BINS
-from ..data.schema import OPTIONAL_LABEL_COLUMNS
 
 SAMPLE_RATE = 16_000
 HOP_SAMPLES = 320
@@ -22,6 +23,16 @@ MAX_SECONDS = 60
 MAX_SAMPLES = SAMPLE_RATE * MAX_SECONDS
 INPUT_TENSOR_NAME = "audio_raw"
 OUTPUT_TENSOR_NAME = "StatefulPartitionedCall"
+OPTIONAL_LABEL_COLUMNS = {
+    "transcript",
+    "speaker_id",
+    "session_id",
+    "device",
+    "environment",
+    "source",
+    "duration_s",
+    "split",
+}
 
 
 class AudioFrontend:
@@ -70,6 +81,9 @@ class AudioFrontend:
         return output
 
 
+_WORKER_FRONTEND: AudioFrontend | None = None
+
+
 def load_wav_16k_mono(path: str | Path) -> np.ndarray:
     try:
         import soundfile as sf
@@ -98,6 +112,7 @@ def materialize_mel_manifest(
     mel_dir: str | Path,
     frontend_model: str | Path,
     extension: str = ".npy",
+    workers: int = 1,
 ) -> int:
     """Convert a raw-audio 13-label manifest into a mel manifest.
 
@@ -106,29 +121,73 @@ def materialize_mel_manifest(
     """
     if extension not in {".npy", ".npz"}:
         raise ValueError("extension must be '.npy' or '.npz'")
+    if workers < 1:
+        raise ValueError(f"workers must be positive, got {workers}")
     input_path = Path(input_manifest).expanduser()
     output_path = Path(output_manifest).expanduser()
     mel_root = Path(mel_dir).expanduser()
-    frontend = AudioFrontend(frontend_model)
 
     rows = _read_audio_label_manifest(input_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mel_root.mkdir(parents=True, exist_ok=True)
     metadata_columns = _metadata_columns(input_path)
+    tasks = (
+        (row["audio_path"], str((mel_root / f"{index:08d}{extension}").resolve()))
+        for index, row in enumerate(rows)
+    )
+    if workers == 1:
+        frontend = AudioFrontend(frontend_model)
+        mel_paths = (
+            _write_mel(frontend, audio_path, mel_path)
+            for audio_path, mel_path in tasks
+        )
+    else:
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_init_mel_worker,
+            initargs=(str(Path(frontend_model).expanduser()),),
+        ) as executor:
+            mel_paths = executor.map(_write_mel_worker, tasks, chunksize=16)
+            _write_mel_manifest_rows(output_path, metadata_columns, rows, mel_paths)
+            return len(rows)
+    _write_mel_manifest_rows(output_path, metadata_columns, rows, mel_paths)
+    return len(rows)
+
+
+def _write_mel_manifest_rows(
+    output_path: Path,
+    metadata_columns: list[str],
+    rows: list[dict[str, str]],
+    mel_paths: Iterable[str],
+) -> None:
     with output_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["mel_path", *metadata_columns, *HEAD_ORDER])
         writer.writeheader()
-        for index, row in enumerate(rows):
-            mel_path = mel_root / f"{index:08d}{extension}"
-            frontend.write_mel(row["audio_path"], mel_path)
+        for row, mel_path in zip(rows, mel_paths, strict=True):
             writer.writerow(
                 {
-                    "mel_path": str(mel_path.resolve()),
+                    "mel_path": mel_path,
                     **{column: row.get(column, "") for column in metadata_columns},
                     **{head: row[head] for head in HEAD_ORDER},
                 }
             )
-    return len(rows)
+
+
+def _init_mel_worker(frontend_model: str) -> None:
+    global _WORKER_FRONTEND
+    _WORKER_FRONTEND = AudioFrontend(frontend_model)
+
+
+def _write_mel_worker(task: tuple[str, str]) -> str:
+    if _WORKER_FRONTEND is None:
+        raise RuntimeError("mel worker was not initialized")
+    audio_path, mel_path = task
+    return _write_mel(_WORKER_FRONTEND, audio_path, mel_path)
+
+
+def _write_mel(frontend: AudioFrontend, audio_path: str, mel_path: str) -> str:
+    frontend.write_mel(audio_path, mel_path)
+    return str(Path(mel_path).resolve())
 
 
 def _read_audio_label_manifest(path: Path) -> list[dict[str, str]]:

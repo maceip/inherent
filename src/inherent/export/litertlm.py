@@ -30,9 +30,14 @@ _DEFAULT_BUILDER_TIMEOUT_SECONDS = 30.0
 _DELEGATE_TO_LITERTLM_BACKEND = {
     "cpu": "cpu",
     "gpu": "gpu",
-    # LiteRT-LM names this accelerator class "npu"; keep the user-facing
-    # export knob as "tpu" because that is the delegate term used by inherent.
+    "npu": "npu",
+    # LiteRT-LM names accelerator-class execution "npu"; the named targets are
+    # metadata-level requests that must still be validated on hardware.
     "tpu": "npu",
+    "qualcomm": "npu",
+    "mediatek": "npu",
+    "intel": "npu",
+    "google_tensor": "npu",
 }
 
 
@@ -313,7 +318,7 @@ def _normalize_delegates(delegates: tuple[str, ...]) -> tuple[str, ...]:
     if not normalized:
         return ("cpu",)
     if "all" in normalized:
-        return ("cpu", "gpu", "tpu")
+        return ("cpu", "gpu", "npu", "tpu")
     return tuple(dict.fromkeys(normalized))
 
 

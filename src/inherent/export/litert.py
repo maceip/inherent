@@ -14,9 +14,10 @@ from .core import (
     OUTPUT_TENSOR_NAME,
     artifact_path,
     export_onnx,
-    fit_frames,
+    inspect_tflite_io_contract,
     load_export_model,
     representative_dataset,
+    validate_tflite_io_contract,
     verify_onnx,
     write_artifact_metadata,
     write_json_report,
@@ -87,6 +88,7 @@ def export_to_tflite(
     """PyTorch -> ONNX -> TFLite int8 with representative dataset for activation calibration."""
     if cfg.export.quantization != "int8":
         raise ValueError(f"unsupported export.quantization {cfg.export.quantization!r}; only 'int8' is allowed")
+    validate_tflite_export_config(cfg)
     checkpoint_path = Path(checkpoint_path).expanduser()
     output_dir = Path(output_dir).expanduser()
     if not checkpoint_path.is_file():
@@ -174,14 +176,18 @@ def convert_saved_model_to_tflite(saved_model_dir: Path, cfg: Config, tflite_pat
     tflite_path.write_bytes(tflite_model)
 
 
-def verify_tflite(tflite_path: Path, cfg: Config) -> None:
+def verify_tflite(tflite_path: Path, cfg: Config) -> dict:
     try:
         import numpy as np
         import tensorflow as tf
     except ImportError as exc:
         raise RuntimeError("tensorflow and numpy are required to verify TFLite export") from exc
 
-    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
+    tflite_io = inspect_tflite_io_contract(tflite_path)
+    validate_tflite_io_contract(tflite_io, cfg)
+
+    interpreter = tf.lite.Interpreter(model_path=str(tflite_path), num_threads=1)
+    interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     if len(input_details) != 1:
@@ -194,22 +200,8 @@ def verify_tflite(tflite_path: Path, cfg: Config) -> None:
         raise ValueError(f"TFLite input tensor name must contain {INPUT_TENSOR_NAME!r}, got {input_detail['name']}")
     if cfg.export.strict_tensor_names and OUTPUT_TENSOR_NAME not in output_detail["name"]:
         raise ValueError(f"TFLite output tensor name must contain {OUTPUT_TENSOR_NAME!r}, got {output_detail['name']}")
-    if input_detail["dtype"] != np.float32:
-        raise TypeError(f"TFLite input dtype must be float32, got {input_detail['dtype']}")
-    if output_detail["dtype"] != np.float32:
-        raise TypeError(f"TFLite output dtype must be float32, got {output_detail['dtype']}")
 
-    input_shape = tuple(int(dim) for dim in input_detail["shape"])
-    if len(input_shape) != 3 or input_shape[0] != 1 or input_shape[2] != cfg.model.mel_bins:
-        raise ValueError(f"TFLite input shape must be [1,T,{cfg.model.mel_bins}], got {input_shape}")
-    output_shape = tuple(int(dim) for dim in output_detail["shape"])
-    if output_shape[-1:] != (len(HEAD_ORDER),):
-        raise ValueError(f"TFLite output last dimension must be {len(HEAD_ORDER)}, got {output_shape}")
-
-    sample_frames = cfg.export.onnx_static_frames or cfg.export.onnx_sample_frames
-    sample = np.zeros((1, sample_frames, cfg.model.mel_bins), dtype=np.float32)
-    interpreter.resize_tensor_input(input_detail["index"], sample.shape, strict=False)
-    interpreter.allocate_tensors()
+    sample = np.zeros(tuple(tflite_io["input_shape"]), dtype=np.float32)
     interpreter.set_tensor(input_detail["index"], sample)
     interpreter.invoke()
     output = interpreter.get_tensor(output_detail["index"])
@@ -217,6 +209,15 @@ def verify_tflite(tflite_path: Path, cfg: Config) -> None:
         raise ValueError(f"TFLite invocation output shape must be [1,{len(HEAD_ORDER)}], got {output.shape}")
     if not np.isfinite(output).all():
         raise ValueError("TFLite invocation produced non-finite output")
+    return tflite_io
+
+
+def validate_tflite_export_config(cfg: Config) -> None:
+    if cfg.export.onnx_static_frames != cfg.model.max_frames:
+        raise ValueError(
+            "TFLite export requires export.onnx_static_frames to equal "
+            f"model.max_frames ({cfg.model.max_frames}); got {cfg.export.onnx_static_frames}"
+        )
 
 
 def verify_size(tflite_path: Path, target_size_mb: int) -> None:
@@ -229,8 +230,8 @@ def _normalize_delegates(delegates: tuple[str, ...]) -> tuple[str, ...]:
     if not delegates:
         return ("cpu",)
     if "all" in delegates:
-        return ("cpu", "gpu", "tpu")
-    return tuple(dict.fromkeys(delegates))
+        return ("cpu", "gpu", "npu", "tpu")
+    return tuple(dict.fromkeys(delegate.lower() for delegate in delegates))
 
 
 def _delegate_report(delegate: str, artifact: Path, cfg: Config) -> dict:
@@ -250,10 +251,20 @@ def _delegate_report(delegate: str, artifact: Path, cfg: Config) -> dict:
             "status": "skipped",
             "reason": "LiteRT GPU delegate validation requires target GPU delegate libraries at runtime",
         }
-    if delegate == "tpu":
+    if delegate in {"npu", "qualcomm", "mediatek", "intel"}:
         status = "skipped"
-        reason = "Edge TPU validation requires compiler/delegate and a fixed-shape full-int8 compatible model"
+        reason = (
+            "LiteRT NPU validation requires target vendor libraries and a device run through "
+            "CompiledModel; this fixed-shape standard-op TFLite is the input artifact"
+        )
+        return {**base, "status": status, "reason": reason, "runtime_api": "LiteRT CompiledModel"}
+    if delegate in {"tpu", "google_tensor"}:
+        status = "skipped"
+        reason = (
+            "Google Tensor TPU validation requires Tensor ML SDK / Pixel device profiling; "
+            "this fixed-shape standard-op TFLite is the input artifact"
+        )
         if cfg.export.onnx_static_frames is None:
             reason = "TPU delegate requires export.onnx_static_frames to be set"
-        return {**base, "status": status, "reason": reason}
+        return {**base, "status": status, "reason": reason, "runtime_api": "Tensor ML SDK / LiteRT CompiledModel"}
     raise ValueError(f"unsupported delegate {delegate!r}")

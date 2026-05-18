@@ -32,10 +32,30 @@ def test_pipeline_configs_load():
         "configs/base.yaml",
         "configs/baseline.yaml",
         "configs/production.yaml",
+        "configs/production_quality.yaml",
+        "configs/fixture_quality.yaml",
         "configs/smoke.yaml",
         "configs/high_performance_local.yaml",
     ):
         assert Config.load(path).model.num_heads == len(HEAD_ORDER)
+
+
+def test_export_configs_pin_android_tflite_shape():
+    for path in (
+        "configs/base.yaml",
+        "configs/baseline.yaml",
+        "configs/production.yaml",
+        "configs/production_quality.yaml",
+        "configs/production_local.yaml",
+        "configs/production_local_shard_a.yaml",
+        "configs/production_local_shard_b.yaml",
+        "configs/fixture_quality.yaml",
+        "configs/smoke.yaml",
+        "configs/high_performance_local.yaml",
+    ):
+        cfg = Config.load(path)
+
+        assert cfg.export.onnx_static_frames == cfg.model.max_frames == 3000
 
 
 def test_default_config_sources_cover_all_intent_heads():

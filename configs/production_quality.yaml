@@ -15,7 +15,7 @@ data:
   max_seconds: 60
   directedness:
     positives: [slurp, speech_massive]
-    negatives: [ami, speech_commands, fsd50k]
+    negatives: [speech_commands, librispeech]
     positive_manifests: []
     negative_manifests: []
     labeled_manifests: []
@@ -32,24 +32,28 @@ data:
       calendar_event: [slurp.calendar_*, stop.reminder]
       start_timer: [slurp.alarm_set, stop.timer, speech_massive.alarm_set]
     synthetic:
+      photo_query: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      create_doc: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       deep_research: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       insight: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      browsing_agent: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       calling_agent: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
 
 training:
-  batch_size: 32
-  learning_rate: 3.0e-4
+  batch_size: 8
+  learning_rate: 1.0e-4
   weight_decay: 1.0e-2
-  warmup_steps: 1000
-  max_steps: 100000
+  warmup_steps: 500
+  max_steps: 40000
   eval_every_steps: 2000
   save_every_steps: 2000
   loss: focal_bce
   focal_gamma: 2.0
   class_weights: balanced
-  train_manifest: data/train_manifest.csv
-  eval_manifest: data/eval_manifest.csv
-  num_workers: 4
+  sampler: label_balanced
+  train_manifest: data/quality_train_manifest.csv
+  eval_manifest: data/quality_eval_manifest.csv
+  num_workers: 0
   device: cuda
   seed: 1337
 
@@ -59,12 +63,12 @@ export:
   quantization: int8
   representative_dataset_size: 500
   target_size_mb: 50
-  output_path: artifacts/production/inherent.tflite
-  metadata_path: artifacts/production/inherent.metadata.json
-  onnx_path: artifacts/production/inherent.onnx
-  onnx_metadata_path: artifacts/production/inherent.onnx.metadata.json
-  mlx_dir: artifacts/production/mlx
-  litertlm_path: artifacts/production/inherent.litertlm
+  output_path: artifacts/quality/inherent.tflite
+  metadata_path: artifacts/quality/inherent.metadata.json
+  onnx_path: artifacts/quality/inherent.onnx
+  onnx_metadata_path: artifacts/quality/inherent.onnx.metadata.json
+  mlx_dir: artifacts/quality/mlx
+  litertlm_path: artifacts/quality/inherent.litertlm
   onnx_opset: 17
   onnx_sample_frames: 50
   onnx_static_frames: 3000

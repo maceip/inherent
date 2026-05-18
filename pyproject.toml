@@ -44,6 +44,8 @@ inherent-labels = "inherent.scripts.labels:main"
 inherent-train = "inherent.scripts.train:main"
 inherent-eval = "inherent.scripts.eval:main"
 inherent-export = "inherent.scripts.export:main"
+inherent-fixtures = "inherent.scripts.fixtures:main"
+inherent-fixture-quality = "inherent.eval.fixture_quality:main"
 
 [build-system]
 requires = ["hatchling"]

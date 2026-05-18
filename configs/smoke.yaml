@@ -60,7 +60,7 @@ export:
   litertlm_path: artifacts/smoke/inherent.litertlm
   onnx_opset: 17
   onnx_sample_frames: 50
-  onnx_static_frames: 50
+  onnx_static_frames: 3000
   strict_tensor_names: false
   parity_atol: 1.0e-4
 

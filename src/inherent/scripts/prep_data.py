@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--output-manifest", type=Path)
     parser.add_argument("--mel-dir", type=Path)
     parser.add_argument("--frontend-model", type=Path)
+    parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
 
     cfg = Config.load(args.config)
@@ -50,6 +51,7 @@ def main() -> None:
             output_manifest=args.output_manifest,
             mel_dir=args.mel_dir,
             frontend_model=args.frontend_model,
+            workers=args.workers,
         )
         print(f"materialized {count} mel samples")
     elif args.target == "raw-manifest":

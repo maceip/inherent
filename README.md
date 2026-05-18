@@ -34,11 +34,11 @@ After training, you can export to:
 
 - **ONNX** — runs in ONNX Runtime on desktop, server, and the browser
   (WebGPU or WASM).
-- **TFLite / LiteRT** — Android, iOS, and small Linux devices. Three
-  delegate paths are exposed via `--delegate`: `cpu` (XNNPACK), `gpu`
-  (mobile GPU — Adreno, Mali, Apple GPU), and `tpu`, which maps to the
-  NPU class in LiteRT-LM (Qualcomm Hexagon HTP, Google Edge TPU, and
-  similar dedicated neural accelerators).
+- **TFLite / LiteRT** — Android, iOS, and small Linux devices. Delegate
+  paths are exposed via `--delegate`: `cpu`, `gpu`, `npu`, `tpu`, and
+  named NPU targets (`qualcomm`, `mediatek`, `intel`, `google_tensor`).
+  The Android accelerator strategy is documented in
+  `docs/android-accelerator-backends.md`.
 - **LiteRT-LM** — the same LiteRT runtime with the delegate choice baked
   into the package; used when an external builder is available.
 - **MLX** — native Apple Silicon on macOS, iPhone, and iPad.
@@ -51,7 +51,7 @@ your numbers will vary with chip, batch size, and quantization.
 
 | Path | Typical latency |
 | --- | --- |
-| Inherent → LiteRT NPU delegate (`tpu`, on Hexagon HTP / Edge TPU) | ~1–3 ms |
+| Inherent → LiteRT NPU / Google Tensor TPU path | ~1–3 ms |
 | Inherent → MLX on Apple Silicon (M1/M2/M3) | ~1–3 ms |
 | Inherent → LiteRT GPU delegate (Adreno, Mali, Apple GPU) | ~2–5 ms |
 | Inherent → ONNX Runtime on desktop CPU | ~3–8 ms |
@@ -76,6 +76,60 @@ device ships one and the kernel coverage varies by vendor — fall back to GPU
 or CPU when the delegate refuses an op. The un-optimized PyTorch row is
 included for completeness: it shows what the same single-pass model costs
 if you skip the export step entirely.
+
+### Train from gatekeeper fixtures
+
+The genesis audio smoke fixtures already carry expected 13-head labels. To use
+them as calibration data without hand-labeling recordings:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.fixtures \
+  --index ~/neural/scripts/test-fixtures/gatekeeper-utterances.json \
+  --output-manifest artifacts/fixture-quality/labels.csv \
+  --macos-voice Samantha \
+  --macos-voice Alex
+```
+
+Then materialize mels with `inherent-prep-data --target mels` or feed that
+manifest through the recorded-library build path as an extra/synthetic train
+manifest.
+
+For the Android drop-in path, train and score fixtures with runtime-static
+padding so the PyTorch checkpoint sees the same `[1, 3000, 128]` zero-padded
+input as the exported TFLite:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.prep_data \
+  --config configs/fixture_quality.yaml \
+  --target mels \
+  --input-manifest artifacts/fixture-quality/labels.csv \
+  --output-manifest artifacts/fixture-quality/mels_manifest.csv \
+  --mel-dir artifacts/fixture-quality/mels \
+  --frontend-model data/audio_frontend.tflite \
+  --workers 1
+
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.train \
+  --config configs/fixture_quality.yaml \
+  --output-dir artifacts/fixture-quality/runtime-static-run
+
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.fixture_quality \
+  --checkpoint artifacts/fixture-quality/runtime-static-run/best.pt \
+  --mel-manifest artifacts/fixture-quality/mels_manifest.csv
+```
+
+After export, score the exact TFLite artifact too:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.export \
+  --checkpoint artifacts/fixture-quality/runtime-static-run/best.pt \
+  --config configs/fixture_quality.yaml \
+  --output-dir artifacts/fixture-quality/runtime-static-export \
+  --backend litert
+
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.fixture_quality \
+  --tflite-model artifacts/fixture-quality/runtime-static-export/inherent.tflite \
+  --mel-manifest artifacts/fixture-quality/mels_manifest.csv
+```
 
 ## Install
 
@@ -165,8 +219,9 @@ The exported artifact takes a mel-spectrogram, not raw audio. The repo ships
 `data/audio_frontend.tflite` (the same 128-bin mel frontend used during
 training, 20 ms hop at 16 kHz mono) so you can go end-to-end from a WAV file
 to scores. Below is a minimal Python example using the ONNX artifact; the
-TFLite/LiteRT and MLX paths follow the same shape — only the runtime loader
-changes.
+MLX paths follow the same shape. The TFLite/LiteRT artifact has a fixed public
+input shape of `[1, 3000, 128]`, so shorter frontend outputs must be
+zero-padded before invocation.
 
 ```python
 import numpy as np
@@ -197,7 +252,8 @@ long as the output is `[T, 128]` float32 with the same bin and hop layout.
 
 On Android or iOS, load `inherent.tflite` with the standard LiteRT or TFLite
 interpreter: the input tensor is `mel_spectrogram`, the output is
-`intent_output`. MLX users load the package under `<output-dir>/mlx/`. The
+`intent_output`, and the public tensors are `[1, 3000, 128]` float32 in and
+`[1, 13]` float32 out. MLX users load the package under `<output-dir>/mlx/`. The
 metadata sidecar (`inherent.metadata.json`) carries the head order and
 default thresholds so app code can pin to them at load time instead of
 hard-coding.

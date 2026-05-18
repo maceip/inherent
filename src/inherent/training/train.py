@@ -9,6 +9,7 @@ import argparse
 import json
 import random
 from dataclasses import asdict
+from functools import partial
 from itertools import cycle
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import numpy as np
 import torch
 import torch.multiprocessing as _mp
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 try:
     _mp.set_sharing_strategy("file_system")
@@ -31,6 +32,7 @@ from .dataset import (
     MelManifestDataset,
     collate_mel_batches,
     compute_balanced_pos_weight,
+    compute_label_balanced_sample_weights,
 )
 
 
@@ -77,14 +79,17 @@ def train(
         if cfg.training.eval_manifest
         else None
     )
+    sampler = _make_train_sampler(train_dataset, cfg)
+    collate_fn = _collate_fn(cfg)
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg.training.batch_size,
-        shuffle=True,
+        shuffle=(sampler is None),
+        sampler=sampler,
         num_workers=cfg.training.num_workers,
         pin_memory=False,
         persistent_workers=(cfg.training.num_workers > 0),
-        collate_fn=collate_mel_batches,
+        collate_fn=collate_fn,
         drop_last=True,
     )
     if len(train_loader) == 0:
@@ -99,7 +104,7 @@ def train(
             num_workers=cfg.training.num_workers,
             pin_memory=False,
             persistent_workers=(cfg.training.num_workers > 0),
-            collate_fn=collate_mel_batches,
+            collate_fn=collate_fn,
             drop_last=False,
         )
 
@@ -128,7 +133,7 @@ def train(
         model.train()
         batch = _move_batch(next(loader_iter), device)
         optimizer.zero_grad(set_to_none=True)
-        logits = model(batch.mel, lengths=batch.lengths)
+        logits = model(batch.mel, lengths=_model_lengths(batch, cfg))
         loss = focal_bce_loss(
             logits,
             batch.targets,
@@ -192,6 +197,33 @@ def _load_model_checkpoint(model: JointAudioIntentModel, cfg: Config, checkpoint
     model.load_state_dict(checkpoint["model_state_dict"])
 
 
+def _make_train_sampler(dataset: MelManifestDataset, cfg: Config) -> WeightedRandomSampler | None:
+    if cfg.training.sampler == "shuffle":
+        return None
+    if cfg.training.sampler != "label_balanced":
+        raise ValueError(f"unsupported training.sampler {cfg.training.sampler!r}")
+    generator = torch.Generator()
+    generator.manual_seed(cfg.training.seed)
+    return WeightedRandomSampler(
+        weights=compute_label_balanced_sample_weights(dataset),
+        num_samples=len(dataset),
+        replacement=True,
+        generator=generator,
+    )
+
+
+def _collate_fn(cfg: Config):
+    if cfg.training.padding == "runtime_static":
+        return partial(collate_mel_batches, fixed_frames=cfg.model.max_frames)
+    return collate_mel_batches
+
+
+def _model_lengths(batch: MelBatch, cfg: Config) -> torch.Tensor | None:
+    if cfg.training.padding == "runtime_static":
+        return None
+    return batch.lengths
+
+
 def _evaluate_loss(
     model: JointAudioIntentModel,
     loader: DataLoader,
@@ -205,7 +237,7 @@ def _evaluate_loss(
     with torch.no_grad():
         for batch in loader:
             moved = _move_batch(batch, device)
-            logits = model(moved.mel, lengths=moved.lengths)
+            logits = model(moved.mel, lengths=_model_lengths(moved, cfg))
             loss = focal_bce_loss(
                 logits,
                 moved.targets,

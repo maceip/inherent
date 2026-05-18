@@ -93,6 +93,8 @@ class TrainingConfig:
     loss: str = "focal_bce"
     focal_gamma: float = 2.0
     class_weights: str = "balanced"
+    sampler: str = "shuffle"
+    padding: str = "dynamic"
     train_manifest: str = "data/train_manifest.csv"
     eval_manifest: str | None = None
     num_workers: int = 4
@@ -120,6 +122,10 @@ class TrainingConfig:
             raise ValueError(f"focal_gamma must be non-negative, got {self.focal_gamma}")
         if self.class_weights not in {"balanced", "none"}:
             raise ValueError("class_weights must be 'balanced' or 'none'")
+        if self.sampler not in {"shuffle", "label_balanced"}:
+            raise ValueError("sampler must be 'shuffle' or 'label_balanced'")
+        if self.padding not in {"dynamic", "runtime_static"}:
+            raise ValueError("padding must be 'dynamic' or 'runtime_static'")
         if self.num_workers < 0:
             raise ValueError(f"num_workers must be non-negative, got {self.num_workers}")
         if self.device not in {"cuda", "mps"}:
@@ -141,14 +147,24 @@ class ExportConfig:
     litertlm_path: str = "artifacts/inherent.litertlm"
     onnx_opset: int = 17
     onnx_sample_frames: int = 50
-    onnx_static_frames: int | None = None
+    onnx_static_frames: int | None = RUNTIME_MAX_FRAMES
     strict_tensor_names: bool = True
     parity_atol: float = 1.0e-4
 
     def __post_init__(self) -> None:
         if self.backend not in {"tflite", "litert", "onnx", "mlx", "litertlm", "all"}:
             raise ValueError("export.backend must be one of: tflite, litert, onnx, mlx, litertlm, all")
-        allowed_delegates = {"cpu", "gpu", "tpu", "all"}
+        allowed_delegates = {
+            "cpu",
+            "gpu",
+            "npu",
+            "tpu",
+            "qualcomm",
+            "mediatek",
+            "intel",
+            "google_tensor",
+            "all",
+        }
         unexpected_delegates = sorted(set(self.delegates) - allowed_delegates)
         if unexpected_delegates:
             raise ValueError(f"unsupported export delegates: {unexpected_delegates}")

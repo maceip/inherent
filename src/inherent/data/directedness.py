@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
