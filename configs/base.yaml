@@ -34,8 +34,8 @@ data:
     public:
       add_to_list: [slurp.lists_*, speech_massive.lists_createoradd]
       term_search: [slurp.qa_*, speech_massive.general_quirky]
-      calendar_event: [slurp.calendar_set, slurp.calendar_create, slurp.calendar_update, slurp.calendar_remove, stop.reminder]
-      start_timer: [slurp.alarm_set, stop.timer, speech_massive.alarm_set]
+      calendar_event: [slurp.calendar_set, slurp.calendar_create, slurp.calendar_update, slurp.calendar_remove]
+      start_timer: [slurp.alarm_set, speech_massive.alarm_set]
     synthetic:
       photo_query: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       create_doc: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
