@@ -28,6 +28,16 @@
           <span id="recordingBadge" class="badge">Mic: idle</span>
         </div>
 
+        <div id="modelLoader" class="model-loader" aria-live="polite">
+          <div class="model-loader-top">
+            <strong>Loading bundled model</strong>
+            <span id="modelProgressText">Starting...</span>
+          </div>
+          <div class="model-progress" role="progressbar" aria-label="Model loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="modelProgressFill"></span>
+          </div>
+        </div>
+
         <div class="meter" aria-label="Input level">
           <span id="levelFill"></span>
         </div>

@@ -90,6 +90,10 @@ const dom = {
   startRecording: document.getElementById("startRecording"),
   stopRecording: document.getElementById("stopRecording"),
   modelStatus: document.getElementById("modelStatus"),
+  modelLoader: document.getElementById("modelLoader"),
+  modelProgress: document.querySelector(".model-progress"),
+  modelProgressFill: document.getElementById("modelProgressFill"),
+  modelProgressText: document.getElementById("modelProgressText"),
   recordingStatus: document.getElementById("recordingStatus"),
   runtimeBadge: document.getElementById("runtimeBadge"),
   recordingBadge: document.getElementById("recordingBadge"),
@@ -130,6 +134,7 @@ async function autoLoadDefaultModel() {
     await loadModel({ quiet404: true });
   } catch (error) {
     updateRuntimeBadge("Model: unavailable", false);
+    updateModelProgress(100, "Failed", "failed");
     setModelStatus(`Bundled model failed to load: ${error.message}`);
     dom.startRecording.disabled = true;
     setRecordingStatus("Recording is disabled because the bundled model could not be loaded.");
@@ -138,6 +143,7 @@ async function autoLoadDefaultModel() {
 
 async function loadModel(options = {}) {
   ensureOrtLoaded();
+  updateModelProgress(2, "Starting");
   setModelStatus("Loading bundled model...");
   dom.startRecording.disabled = true;
   if (dom.loadModel) {
@@ -145,9 +151,13 @@ async function loadModel(options = {}) {
   }
 
   try {
+    updateModelProgress(8, "Metadata");
     state.metadata = await loadMetadata(options);
+    updateModelProgress(15, "Downloading model");
     const modelSource = await loadModelSource(options);
+    updateModelProgress(86, "Starting runtime");
     state.session = await createSessionWithFallback(modelSource);
+    updateModelProgress(100, "Ready", "ready");
     renderHeadCards();
     renderFlowHeads();
     updateRuntimeBadge(`Model: ${state.provider}`, true);
@@ -166,7 +176,10 @@ async function loadModel(options = {}) {
 async function loadModelSource(options) {
   const file = dom.modelFile && dom.modelFile.files && dom.modelFile.files[0];
   if (file) {
-    return file.arrayBuffer();
+    updateModelProgress(30, "Reading local model");
+    const buffer = await file.arrayBuffer();
+    updateModelProgress(82, formatLoadedBytes(file.size, file.size));
+    return buffer;
   }
 
   const url = dom.modelUrl && dom.modelUrl.value.trim()
@@ -180,7 +193,44 @@ async function loadModelSource(options) {
     }
     throw new Error(message);
   }
-  return url;
+  return readResponseWithProgress(response);
+}
+
+async function readResponseWithProgress(response) {
+  const total = Number(response.headers.get("content-length")) || 0;
+  if (!response.body || !response.body.getReader) {
+    const buffer = await response.arrayBuffer();
+    updateModelProgress(82, formatLoadedBytes(buffer.byteLength, total || buffer.byteLength));
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(value);
+    received += value.byteLength;
+    if (total > 0) {
+      const downloadProgress = 15 + (received / total) * 67;
+      updateModelProgress(downloadProgress, formatLoadedBytes(received, total));
+    } else {
+      const estimatedProgress = Math.min(78, 18 + chunks.length * 3);
+      updateModelProgress(estimatedProgress, formatLoadedBytes(received, 0));
+    }
+  }
+
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  updateModelProgress(82, formatLoadedBytes(received, total || received));
+  return bytes.buffer;
 }
 
 async function loadMetadata(options) {
@@ -754,6 +804,40 @@ function updateBestMatch(match, matched) {
   label.textContent = matched ? "Matched above threshold" : "Highest score, below threshold";
   name.textContent = prettyHead(match.head);
   score.textContent = `${match.score.toFixed(3)} score, ${match.threshold.toFixed(3)} threshold`;
+}
+
+function updateModelProgress(percent, text, stateClass) {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  if (dom.modelProgressFill) {
+    dom.modelProgressFill.style.width = `${clamped}%`;
+  }
+  if (dom.modelProgress) {
+    dom.modelProgress.setAttribute("aria-valuenow", String(clamped));
+  }
+  if (dom.modelProgressText && text) {
+    dom.modelProgressText.textContent = `${clamped}% - ${text}`;
+  }
+  if (dom.modelLoader) {
+    dom.modelLoader.classList.toggle("ready", stateClass === "ready");
+    dom.modelLoader.classList.toggle("failed", stateClass === "failed");
+  }
+}
+
+function formatLoadedBytes(received, total) {
+  if (total > 0) {
+    return `${formatBytes(received)} / ${formatBytes(total)}`;
+  }
+  return `${formatBytes(received)} loaded`;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function headOrder() {

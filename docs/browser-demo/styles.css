@@ -124,6 +124,63 @@ input {
   min-height: 48px;
 }
 
+.model-loader {
+  background: rgba(255, 248, 223, 0.82);
+  border: 5px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 6px 6px 0 rgba(8, 9, 20, 0.18);
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.model-loader.ready {
+  background: rgba(96, 255, 127, 0.82);
+}
+
+.model-loader.failed {
+  background: rgba(255, 77, 36, 0.86);
+  color: var(--paper);
+}
+
+.model-loader-top {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.model-loader-top strong,
+.model-loader-top span {
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.model-loader-top span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.model-loader.failed .model-loader-top span {
+  color: var(--paper);
+}
+
+.model-progress {
+  background: rgba(8, 9, 20, 0.14);
+  border: 4px solid var(--line);
+  border-radius: 999px;
+  height: 18px;
+  overflow: hidden;
+}
+
+.model-progress span {
+  background: linear-gradient(90deg, var(--dojo-pink), var(--dojo-yellow), var(--hit));
+  display: block;
+  height: 100%;
+  transition: width 180ms ease;
+  width: 0;
+}
+
 .hero {
   align-items: end;
   display: grid;
