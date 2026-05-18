@@ -1,8 +1,10 @@
-"""TTS-synthesize training data for the 5 intent heads with no public spoken data.
+"""TTS-synthesize training data for intent heads with no public spoken data.
 
 Heads requiring synthesis:
   - hasPhotoQuery
   - hasCreateDocIntent
+  - hasPersonContext
+  - hasEventContext
   - hasDeepResearchIntent
   - hasInsightIntent
   - hasBrowsingAgentIntent
@@ -49,6 +51,8 @@ class SyntheticSample:
 SYNTHETIC_HEADS = (
     "hasPhotoQuery",
     "hasCreateDocIntent",
+    "hasPersonContext",
+    "hasEventContext",
     "hasDeepResearchIntent",
     "hasInsightIntent",
     "hasBrowsingAgentIntent",
@@ -99,6 +103,38 @@ PROMPT_TEMPLATES_BY_HEAD: dict[str, list[str]] = {
         "prepare a brief on {topic}",
         "open a blank doc for {project}",
         "create meeting notes for {event}",
+    ],
+    "hasPersonContext": [
+        "what did {contact} say about {topic}",
+        "find my notes about {contact}",
+        "summarize my last conversation with {contact}",
+        "what do i know about {contact}",
+        "pull together context on {contact}",
+        "when did i last talk to {contact}",
+        "find messages from {contact} about {topic}",
+        "what has {contact} asked me to do",
+        "show me the important context for {contact}",
+        "what should i remember about {contact}",
+        "look up my history with {contact}",
+        "find references to {contact} in my notes",
+    ],
+    "hasEventContext": [
+        "what happened in {event}",
+        "summarize the {event}",
+        "what did we decide in {event}",
+        "find notes from {event}",
+        "what are the follow ups from {event}",
+        "pull together context from {event}",
+        "what was discussed during {event}",
+        "show me the action items from {event}",
+        "what changed after {event}",
+        "find the relevant details from {event}",
+        "what did we cover in {event} about {topic}",
+        "find decisions from {event} related to {topic}",
+        "what follow ups came out of {event} for {project}",
+        "summarize the discussion about {topic} during {event}",
+        "summarize the {project} meeting",
+        "what happened around {time_window}",
     ],
     "hasDeepResearchIntent": [
         "do deep research on {topic}",

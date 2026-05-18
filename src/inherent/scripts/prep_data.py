@@ -84,6 +84,8 @@ def _synthetic_head_from_key(key: str) -> str:
     mapping = {
         "photo_query": "hasPhotoQuery",
         "create_doc": "hasCreateDocIntent",
+        "person_context": "hasPersonContext",
+        "event_context": "hasEventContext",
         "deep_research": "hasDeepResearchIntent",
         "insight": "hasInsightIntent",
         "browsing_agent": "hasBrowsingAgentIntent",

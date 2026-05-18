@@ -26,6 +26,8 @@ def test_base_config_names_only_implemented_default_sources():
     assert "person_context" not in cfg.data.intents["public"]
     assert "event_context" not in cfg.data.intents["public"]
     assert "calling_agent" not in cfg.data.intents["public"]
+    assert "person_context" in cfg.data.intents["synthetic"]
+    assert "event_context" in cfg.data.intents["synthetic"]
 
 
 def test_pipeline_configs_load():
@@ -73,8 +75,6 @@ def test_default_config_sources_cover_all_intent_heads():
         "lists_createoradd",
         "qa_factoid",
         "calendar_set",
-        "recommendation",
-        "calendar_query",
         "alarm_set",
     ]
     covered = {
