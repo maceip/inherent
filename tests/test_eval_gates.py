@@ -1,8 +1,11 @@
 import pytest
+import numpy as np
 
 from inherent import HEAD_ORDER
+from inherent import THRESHOLD_KEYS
 from inherent.eval.evaluate import evaluate_gates
 from inherent.eval.evaluate import _runtime_static_for_checkpoint
+from inherent.eval.thresholds import calibrate_thresholds
 
 
 def metrics(auc=0.9, eer=0.05, fpr=0.05):
@@ -52,3 +55,29 @@ def test_checkpoint_eval_uses_checkpoint_padding_by_default():
 
     with pytest.raises(ValueError, match="padding"):
         _runtime_static_for_checkpoint({"config": {"training": {"padding": "sometimes"}}}, override=None)
+
+
+def test_calibrate_thresholds_maximizes_f1_above_recall_floor():
+    scores = np.tile(np.array([[0.1], [0.2], [0.6], [0.8], [0.9]], dtype=np.float32), (1, len(HEAD_ORDER)))
+    labels = np.tile(np.array([[0.0], [0.0], [1.0], [1.0], [1.0]], dtype=np.float32), (1, len(HEAD_ORDER)))
+
+    report = calibrate_thresholds(scores, labels, min_recall=2 / 3)
+
+    assert tuple(report["thresholds_by_key"]) == THRESHOLD_KEYS
+    assert report["thresholds_by_key"]["is_interesting"] == pytest.approx(0.6)
+    assert report["heads"]["isInteresting"]["precision"] == pytest.approx(1.0)
+    assert report["heads"]["isInteresting"]["recall"] == pytest.approx(1.0)
+
+
+def test_calibrate_thresholds_can_skip_heads_missing_label_coverage():
+    scores = np.full((4, len(HEAD_ORDER)), 0.5, dtype=np.float32)
+    labels = np.zeros((4, len(HEAD_ORDER)), dtype=np.float32)
+    labels[0, 0] = 1.0
+
+    with pytest.raises(ValueError, match="hasAddToListIntent"):
+        calibrate_thresholds(scores, labels)
+
+    report = calibrate_thresholds(scores, labels, require_all_heads=False)
+
+    assert "isInteresting" in report["heads"]
+    assert "hasAddToListIntent" in report["skipped_heads"]

@@ -47,6 +47,7 @@ inherent-export = "inherent.scripts.export:main"
 inherent-fixtures = "inherent.scripts.fixtures:main"
 inherent-fixture-quality = "inherent.eval.fixture_quality:main"
 inherent-parity = "inherent.eval.parity:main"
+inherent-thresholds = "inherent.eval.thresholds:main"
 
 [build-system]
 requires = ["hatchling"]

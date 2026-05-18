@@ -145,6 +145,18 @@ PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.par
   --json-out artifacts/fixture-quality/runtime-static-export/reports/parity.json
 ```
 
+After choosing the artifact, calibrate runtime thresholds from the held-out
+manifest instead of shipping the seed defaults. The manifest must include at
+least one positive and one negative for every head; fixture-only smoke manifests
+need `--allow-missing-heads` and should not be used for release thresholds.
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.thresholds \
+  --tflite-model artifacts/quality/inherent.tflite \
+  --mel-manifest data/quality_eval_manifest.csv \
+  --json-out artifacts/quality/reports/thresholds.json
+```
+
 ## Install
 
 ```bash
