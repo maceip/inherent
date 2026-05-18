@@ -35,6 +35,11 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert 'id="flowHeads"' in root_index
     assert 'id="modelLoader"' in root_index
     assert 'id="modelProgressFill"' in root_index
+    assert 'id="trainingTitle"' in root_index
+    assert 'id="qualityGates"' in root_index
+    assert 'id="feedbackHeads"' in root_index
+    assert 'id="saveFeedback"' in root_index
+    assert 'id="downloadFeedback"' in root_index
     assert 'role="progressbar"' in root_index
     assert 'id="startRecording" type="button" disabled>Record</button>' in root_index
     assert "Loading bundled model" in root_index
@@ -49,6 +54,11 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert './assets/inherent.onnx.metadata.json' in app
     assert "readResponseWithProgress" in app
     assert "updateModelProgress" in app
+    assert "FEEDBACK_STORAGE_KEY" in app
+    assert "validateFeedbackExample" in app
+    assert "saveFeedbackExample" in app
+    assert "downloadFeedbackExamples" in app
+    assert "analyzeAudio" in app
     assert "recentAudioWindow" in app
     assert "browserPaddingValue" in app
     assert "drawScope" in app

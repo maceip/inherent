@@ -3,6 +3,7 @@
 const ORT_CDN_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
 const DEFAULT_MODEL_URL = "./assets/inherent.onnx";
 const DEFAULT_METADATA_URL = "./assets/inherent.onnx.metadata.json";
+const FEEDBACK_STORAGE_KEY = "inherent.browserDemo.feedbackExamples";
 const SAMPLE_RATE = 16000;
 const MAX_SECONDS = 60;
 const MAX_SAMPLES = SAMPLE_RATE * MAX_SECONDS;
@@ -78,6 +79,8 @@ const state = {
   melFilterBank: null,
   hannWindow: null,
   lastScores: [],
+  lastRecordingStats: null,
+  feedbackExamples: loadFeedbackExamples(),
 };
 
 const dom = {
@@ -104,6 +107,15 @@ const dom = {
   heads: document.getElementById("heads"),
   flowHeads: document.getElementById("flowHeads"),
   gateScore: document.getElementById("gateScore"),
+  qualityGates: document.getElementById("qualityGates"),
+  feedbackHeads: document.getElementById("feedbackHeads"),
+  feedbackTranscript: document.getElementById("feedbackTranscript"),
+  feedbackConsent: document.getElementById("feedbackConsent"),
+  feedbackStatus: document.getElementById("feedbackStatus"),
+  feedbackCount: document.getElementById("feedbackCount"),
+  saveFeedback: document.getElementById("saveFeedback"),
+  downloadFeedback: document.getElementById("downloadFeedback"),
+  clearFeedback: document.getElementById("clearFeedback"),
   headTemplate: document.getElementById("headTemplate"),
   flowHeadTemplate: document.getElementById("flowHeadTemplate"),
 };
@@ -114,6 +126,9 @@ if (globalThis.ort) {
 
 renderHeadCards();
 renderFlowHeads();
+renderFeedbackHeads();
+renderFeedbackCount();
+updateQualityGates();
 drawIdleScope();
 wireEvents();
 autoLoadDefaultModel();
@@ -127,6 +142,24 @@ function wireEvents() {
   }
   dom.startRecording.addEventListener("click", () => startRecording());
   dom.stopRecording.addEventListener("click", () => stopRecording(true));
+  if (dom.saveFeedback) {
+    dom.saveFeedback.addEventListener("click", () => saveFeedbackExample());
+  }
+  if (dom.downloadFeedback) {
+    dom.downloadFeedback.addEventListener("click", () => downloadFeedbackExamples());
+  }
+  if (dom.clearFeedback) {
+    dom.clearFeedback.addEventListener("click", () => clearFeedbackExamples());
+  }
+  for (const input of document.querySelectorAll('input[name="feedbackKind"]')) {
+    input.addEventListener("change", () => updateQualityGates());
+  }
+  if (dom.feedbackTranscript) {
+    dom.feedbackTranscript.addEventListener("input", () => updateQualityGates());
+  }
+  if (dom.feedbackConsent) {
+    dom.feedbackConsent.addEventListener("change", () => updateQualityGates());
+  }
 }
 
 async function autoLoadDefaultModel() {
@@ -160,6 +193,8 @@ async function loadModel(options = {}) {
     updateModelProgress(100, "Ready", "ready");
     renderHeadCards();
     renderFlowHeads();
+    renderFeedbackHeads();
+    updateQualityGates();
     updateRuntimeBadge(`Model: ${state.provider}`, true);
     dom.startRecording.disabled = false;
     setModelStatus(
@@ -297,7 +332,9 @@ async function startRecording() {
     state.sourceNode = state.audioContext.createMediaStreamSource(state.mediaStream);
     state.processorNode = state.audioContext.createScriptProcessor(4096, 1, 1);
     state.chunks = [];
+    state.lastRecordingStats = null;
     state.recording = true;
+    updateQualityGates();
 
     state.processorNode.onaudioprocess = (event) => {
       const input = event.inputBuffer.getChannelData(0);
@@ -361,12 +398,15 @@ async function stopRecording(runFinalInference) {
   drawIdleScope();
 
   if (runFinalInference && state.chunks.length) {
+    state.lastRecordingStats = analyzeAudio(mergeChunks(state.chunks), state.inputSampleRate);
     await runInferenceFromBufferedAudio();
     setRecordingStatus("Recording stopped. Final scores shown below.");
+    updateQualityGates();
   } else {
     setRecordingStatus(state.session
       ? "Ready to record from the browser microphone."
       : "Start recording to preview the mic oscilloscope. Load a model to see head hits.");
+    updateQualityGates();
   }
 }
 
@@ -737,6 +777,25 @@ function renderFlowHeads() {
   updateGateScore(null, null);
 }
 
+function renderFeedbackHeads() {
+  if (!dom.feedbackHeads) {
+    return;
+  }
+  dom.feedbackHeads.replaceChildren();
+  for (const head of headOrder().slice(1)) {
+    const label = document.createElement("label");
+    label.className = "feedback-head-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = head;
+    input.addEventListener("change", () => updateQualityGates());
+    const span = document.createElement("span");
+    span.textContent = compactHead(head);
+    label.append(input, span);
+    dom.feedbackHeads.append(label);
+  }
+}
+
 function renderScores(scores) {
   const heads = headOrder();
   const thresholds = thresholdValues();
@@ -762,6 +821,7 @@ function renderScores(scores) {
   });
 
   updateFlowScores(scores, thresholds);
+  updateQualityGates();
   const intentMatches = matches.filter((match) => match.index > 0);
   const selected = intentMatches.sort((a, b) => b.score - a.score)[0] ||
     matches.sort((a, b) => b.score - a.score)[0] ||
@@ -840,6 +900,236 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function analyzeAudio(audio, sampleRate) {
+  let sumSquares = 0;
+  let peak = 0;
+  for (let i = 0; i < audio.length; i += 1) {
+    const sample = Math.abs(audio[i]);
+    sumSquares += sample * sample;
+    peak = Math.max(peak, sample);
+  }
+  return {
+    duration_s: audio.length / sampleRate,
+    peak,
+    rms: audio.length ? Math.sqrt(sumSquares / audio.length) : 0,
+    sample_rate: sampleRate,
+    samples: audio.length,
+  };
+}
+
+function updateQualityGates() {
+  if (!dom.qualityGates) {
+    return;
+  }
+  const validation = validateFeedbackExample();
+  dom.qualityGates.replaceChildren();
+  for (const gate of validation.gates) {
+    const item = document.createElement("li");
+    item.className = gate.pass ? "pass" : "fail";
+    item.textContent = `${gate.pass ? "OK" : "Needs"} - ${gate.text}`;
+    dom.qualityGates.append(item);
+  }
+  if (dom.feedbackStatus && validation.summary) {
+    dom.feedbackStatus.textContent = validation.summary;
+  }
+}
+
+function validateFeedbackExample() {
+  const stats = state.lastRecordingStats;
+  const kind = feedbackKind();
+  const selectedHeads = selectedFeedbackHeads();
+  const transcript = feedbackTranscript();
+  const gates = [
+    {
+      pass: Boolean(state.session),
+      text: "bundled model is loaded",
+    },
+    {
+      pass: Boolean(stats) && !state.recording,
+      text: "a recording has finished",
+    },
+    {
+      pass: Boolean(stats) && stats.duration_s >= 0.5 && stats.duration_s <= 15,
+      text: "clip duration is between 0.5s and 15s",
+    },
+    {
+      pass: Boolean(stats) && stats.rms >= 0.003,
+      text: "audio is not silent",
+    },
+    {
+      pass: Boolean(stats) && stats.peak <= 0.99,
+      text: "audio is not clipped",
+    },
+    {
+      pass: state.lastScores.length === headOrder().length,
+      text: "model scores are available for the recording",
+    },
+    {
+      pass: transcript.length >= 3,
+      text: "short transcript or note is provided",
+    },
+    {
+      pass: kind === "negative" || selectedHeads.length > 0,
+      text: "positive examples choose at least one intent head",
+    },
+    {
+      pass: Boolean(dom.feedbackConsent && dom.feedbackConsent.checked),
+      text: "recording consent is checked",
+    },
+  ];
+  const passed = gates.every((gate) => gate.pass);
+  return {
+    passed,
+    gates,
+    summary: passed
+      ? "Ready to save a lightly validated training example."
+      : "Complete the validation gates before saving this example.",
+  };
+}
+
+function saveFeedbackExample() {
+  const validation = validateFeedbackExample();
+  updateQualityGates();
+  if (!validation.passed) {
+    return;
+  }
+
+  const stats = state.lastRecordingStats;
+  const kind = feedbackKind();
+  const selectedHeads = selectedFeedbackHeads();
+  const example = {
+    schema_version: 1,
+    created_at: new Date().toISOString(),
+    label_kind: kind,
+    positive_heads: kind === "positive" ? selectedHeads : [],
+    negative_heads: kind === "negative" ? selectedHeads : [],
+    transcript_or_note: feedbackTranscript(),
+    audio_summary: {
+      duration_s: Number(stats.duration_s.toFixed(3)),
+      rms: Number(stats.rms.toFixed(6)),
+      peak: Number(stats.peak.toFixed(6)),
+      sample_rate: stats.sample_rate,
+      samples: stats.samples,
+    },
+    model: {
+      version: state.metadata && state.metadata.version,
+      training_hash: state.metadata && state.metadata.training_hash,
+      provider: state.provider,
+    },
+    scores: scoreMap(),
+    thresholds: thresholdMap(),
+  };
+  example.example_id = feedbackFingerprint(example);
+
+  if (state.feedbackExamples.some((item) => item.example_id === example.example_id)) {
+    dom.feedbackStatus.textContent = "Skipped duplicate example already saved in this browser.";
+    return;
+  }
+
+  state.feedbackExamples.push(example);
+  persistFeedbackExamples();
+  renderFeedbackCount();
+  dom.feedbackStatus.textContent = "Saved validated example locally. Download JSONL when ready to review.";
+}
+
+function downloadFeedbackExamples() {
+  if (!state.feedbackExamples.length) {
+    dom.feedbackStatus.textContent = "No saved examples yet.";
+    return;
+  }
+  const jsonl = state.feedbackExamples.map((example) => JSON.stringify(example)).join("\n") + "\n";
+  const blob = new Blob([jsonl], { type: "application/x-ndjson" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `inherent-feedback-${new Date().toISOString().slice(0, 10)}.jsonl`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  dom.feedbackStatus.textContent = `Downloaded ${state.feedbackExamples.length} saved example(s).`;
+}
+
+function clearFeedbackExamples() {
+  state.feedbackExamples = [];
+  persistFeedbackExamples();
+  renderFeedbackCount();
+  if (dom.feedbackStatus) {
+    dom.feedbackStatus.textContent = "Cleared saved examples from this browser.";
+  }
+}
+
+function feedbackKind() {
+  const checked = document.querySelector('input[name="feedbackKind"]:checked');
+  return checked ? checked.value : "positive";
+}
+
+function selectedFeedbackHeads() {
+  if (!dom.feedbackHeads) {
+    return [];
+  }
+  return Array.from(dom.feedbackHeads.querySelectorAll("input:checked")).map((input) => input.value);
+}
+
+function feedbackTranscript() {
+  return dom.feedbackTranscript ? dom.feedbackTranscript.value.trim() : "";
+}
+
+function scoreMap() {
+  const result = {};
+  headOrder().forEach((head, index) => {
+    result[head] = Number((Number(state.lastScores[index] || 0)).toFixed(6));
+  });
+  return result;
+}
+
+function thresholdMap() {
+  const result = {};
+  const thresholds = thresholdValues();
+  headOrder().forEach((head, index) => {
+    result[head] = Number((Number(thresholds[index] || 0)).toFixed(6));
+  });
+  return result;
+}
+
+function feedbackFingerprint(example) {
+  return [
+    example.label_kind,
+    example.positive_heads.join(","),
+    example.negative_heads.join(","),
+    example.transcript_or_note.toLowerCase(),
+    example.audio_summary.duration_s.toFixed(1),
+    example.audio_summary.rms.toFixed(3),
+    Object.values(example.scores).map((score) => score.toFixed(2)).join(","),
+  ].join("|");
+}
+
+function loadFeedbackExamples() {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistFeedbackExamples() {
+  try {
+    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(state.feedbackExamples));
+  } catch {
+    if (dom.feedbackStatus) {
+      dom.feedbackStatus.textContent = "Could not persist examples in local storage.";
+    }
+  }
+}
+
+function renderFeedbackCount() {
+  if (dom.feedbackCount) {
+    dom.feedbackCount.textContent = `${state.feedbackExamples.length} saved`;
+  }
+}
+
 function headOrder() {
   return Array.isArray(state.metadata && state.metadata.head_order)
     ? state.metadata.head_order
@@ -912,9 +1202,12 @@ function resetDemo() {
   state.provider = null;
   state.chunks = [];
   state.lastScores = [];
+  state.lastRecordingStats = null;
   renderHeadCards();
   renderFlowHeads();
+  renderFeedbackHeads();
   drawIdleScope();
+  updateQualityGates();
   updateRuntimeBadge("Runtime: not loaded", false);
   updateRecordingBadge("Mic: idle", false);
   setInferenceStatus("Inference: idle");
