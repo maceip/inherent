@@ -3,7 +3,8 @@
 The GitHub Pages app is served from the repository's `docs/` root. The
 browser interface itself lives at `docs/index.html`; this directory keeps the
 supporting JavaScript, CSS, theme asset, and compatibility redirect for the
-old `/browser-demo/` URL.
+old `/browser-demo/` URL. The page auto-loads the bundled ONNX model from
+`docs/assets/` on startup, so visitors land directly on the record toolbar.
 
 ## Browser backend support
 
@@ -39,9 +40,14 @@ While recording, the UI shows:
   metadata threshold,
 - the full 13-head score table, including the `isInteresting` gate.
 
-## Prepare artifacts
+## Bundled artifacts
 
-Export an ONNX artifact and metadata sidecar:
+The site ships with:
+
+- `docs/assets/inherent.onnx`
+- `docs/assets/inherent.onnx.metadata.json`
+
+To replace the bundled demo artifact with a production trained export, run:
 
 ```bash
 PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.export \
@@ -56,9 +62,9 @@ The default page paths are:
 - `docs/assets/inherent.onnx`
 - `docs/assets/inherent.onnx.metadata.json`
 
-Model files are ignored by the repository `.gitignore`, so either host the
-model elsewhere and paste its URL into the page, or intentionally add release
-artifacts with `git add -f` when you want GitHub Pages to serve them.
+Model files are ignored by the repository `.gitignore`, so production release
+artifacts must be intentionally added with `git add -f` when you want GitHub
+Pages to serve them.
 
 ## Publish on GitHub Pages
 

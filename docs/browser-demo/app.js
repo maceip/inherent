@@ -1,9 +1,12 @@
 "use strict";
 
 const ORT_CDN_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+const DEFAULT_MODEL_URL = "./assets/inherent.onnx";
+const DEFAULT_METADATA_URL = "./assets/inherent.onnx.metadata.json";
 const SAMPLE_RATE = 16000;
 const MAX_SECONDS = 60;
 const MAX_SAMPLES = SAMPLE_RATE * MAX_SECONDS;
+const DEFAULT_INFERENCE_WINDOW_SECONDS = 2.5;
 const DEFAULT_MAX_FRAMES = 3000;
 const MEL_BINS = 128;
 const HOP_SAMPLES = 320;
@@ -112,8 +115,12 @@ wireEvents();
 autoLoadDefaultModel();
 
 function wireEvents() {
-  dom.loadModel.addEventListener("click", () => loadModel());
-  dom.resetDemo.addEventListener("click", () => resetDemo());
+  if (dom.loadModel) {
+    dom.loadModel.addEventListener("click", () => loadModel());
+  }
+  if (dom.resetDemo) {
+    dom.resetDemo.addEventListener("click", () => resetDemo());
+  }
   dom.startRecording.addEventListener("click", () => startRecording());
   dom.stopRecording.addEventListener("click", () => stopRecording(true));
 }
@@ -122,19 +129,20 @@ async function autoLoadDefaultModel() {
   try {
     await loadModel({ quiet404: true });
   } catch (error) {
-    setModelStatus(
-      "Place an ONNX export under ./assets or choose local files. " +
-        `Default load skipped: ${error.message}`,
-    );
-    dom.startRecording.disabled = false;
-    setRecordingStatus("Start recording to preview the mic oscilloscope. Load a model to see head hits.");
+    updateRuntimeBadge("Model: unavailable", false);
+    setModelStatus(`Bundled model failed to load: ${error.message}`);
+    dom.startRecording.disabled = true;
+    setRecordingStatus("Recording is disabled because the bundled model could not be loaded.");
   }
 }
 
 async function loadModel(options = {}) {
   ensureOrtLoaded();
-  setModelStatus("Loading model...");
-  dom.loadModel.disabled = true;
+  setModelStatus("Loading bundled model...");
+  dom.startRecording.disabled = true;
+  if (dom.loadModel) {
+    dom.loadModel.disabled = true;
+  }
 
   try {
     state.metadata = await loadMetadata(options);
@@ -142,24 +150,28 @@ async function loadModel(options = {}) {
     state.session = await createSessionWithFallback(modelSource);
     renderHeadCards();
     renderFlowHeads();
-    updateRuntimeBadge(`Runtime: ${state.provider}`, true);
+    updateRuntimeBadge(`Model: ${state.provider}`, true);
+    dom.startRecording.disabled = false;
     setModelStatus(
-      `Loaded ${state.metadata.artifact_format || "onnx"} model. ` +
-        `Input: ${inputName()}, output: ${outputName()}.`,
+      `Bundled ${state.metadata.artifact_format || "onnx"} model ready.`,
     );
-    setRecordingStatus("Ready to record from the browser microphone.");
+    setRecordingStatus("Ready. Press record and speak into the browser mic.");
   } finally {
-    dom.loadModel.disabled = false;
+    if (dom.loadModel) {
+      dom.loadModel.disabled = false;
+    }
   }
 }
 
 async function loadModelSource(options) {
-  const file = dom.modelFile.files && dom.modelFile.files[0];
+  const file = dom.modelFile && dom.modelFile.files && dom.modelFile.files[0];
   if (file) {
     return file.arrayBuffer();
   }
 
-  const url = dom.modelUrl.value.trim();
+  const url = dom.modelUrl && dom.modelUrl.value.trim()
+    ? dom.modelUrl.value.trim()
+    : DEFAULT_MODEL_URL;
   const response = await fetch(url);
   if (!response.ok) {
     const message = `model fetch failed (${response.status}) for ${url}`;
@@ -172,12 +184,14 @@ async function loadModelSource(options) {
 }
 
 async function loadMetadata(options) {
-  const file = dom.metadataFile.files && dom.metadataFile.files[0];
+  const file = dom.metadataFile && dom.metadataFile.files && dom.metadataFile.files[0];
   if (file) {
     return JSON.parse(await file.text());
   }
 
-  const url = dom.metadataUrl.value.trim();
+  const url = dom.metadataUrl && dom.metadataUrl.value.trim()
+    ? dom.metadataUrl.value.trim()
+    : DEFAULT_METADATA_URL;
   const response = await fetch(url);
   if (response.status === 404 && options.quiet404) {
     return fallbackMetadata();
@@ -314,7 +328,7 @@ async function runInferenceFromBufferedAudio() {
   state.inferInFlight = true;
   setInferenceStatus("Inference: running");
   try {
-    const inputAudio = mergeChunks(state.chunks);
+    const inputAudio = recentAudioWindow(mergeChunks(state.chunks));
     if (inputAudio.length < Math.floor(state.inputSampleRate * 0.2)) {
       return;
     }
@@ -361,9 +375,18 @@ function audioToMel(audio) {
 function melToTensor(mel) {
   const targetFrames = tensorFrameCount(mel.frames);
   const data = new Float32Array(targetFrames * MEL_BINS);
+  data.fill(browserPaddingValue());
   const framesToCopy = Math.min(targetFrames, mel.frames);
   data.set(mel.data.slice(0, framesToCopy * MEL_BINS));
   return new ort.Tensor("float32", data, [1, targetFrames, MEL_BINS]);
+}
+
+function browserPaddingValue() {
+  const configured = state.metadata &&
+    state.metadata.config &&
+    state.metadata.config.export &&
+    state.metadata.config.export.browser_padding_value;
+  return typeof configured === "number" ? configured : 0;
 }
 
 function tensorFrameCount(actualFrames) {
@@ -520,6 +543,24 @@ function mergeChunks(chunks) {
     offset += chunk.length;
   }
   return merged;
+}
+
+function recentAudioWindow(audio) {
+  const maxSamples = Math.max(1, Math.round(browserInferenceWindowSeconds() * state.inputSampleRate));
+  if (audio.length <= maxSamples) {
+    return audio;
+  }
+  return audio.slice(audio.length - maxSamples);
+}
+
+function browserInferenceWindowSeconds() {
+  const configured = state.metadata &&
+    state.metadata.config &&
+    state.metadata.config.export &&
+    state.metadata.config.export.browser_inference_window_seconds;
+  return typeof configured === "number" && configured > 0
+    ? configured
+    : DEFAULT_INFERENCE_WINDOW_SECONDS;
 }
 
 function trimBufferedChunks() {

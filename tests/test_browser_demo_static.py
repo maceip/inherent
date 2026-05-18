@@ -33,15 +33,21 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "./browser-demo/assets/theme-reference.svg" in root_index
     assert 'id="scope"' in root_index
     assert 'id="flowHeads"' in root_index
-    assert 'id="startRecording" type="button">Start recording</button>' in root_index
-    assert "Start recording to preview the mic oscilloscope" in root_index
+    assert 'id="startRecording" type="button" disabled>Record</button>' in root_index
+    assert "Loading bundled model" in root_index
+    assert "Or local ONNX model" not in root_index
+    assert "Load ONNX model" not in root_index
     assert "webgpu" in app
     assert "wasm" in app
     assert "mel_spectrogram" in app
     assert "intent_output" in app
+    assert "DEFAULT_MODEL_URL" in app
+    assert "recentAudioWindow" in app
+    assert "browserPaddingValue" in app
     assert "drawScope" in app
     assert "renderFlowHeads" in app
-    assert "Recording mic preview" in app
+    assert (DOCS_DIR / "assets" / "inherent.onnx").is_file()
+    assert (DOCS_DIR / "assets" / "inherent.onnx.metadata.json").is_file()
 
 
 def test_browser_demo_embeds_runtime_head_order():

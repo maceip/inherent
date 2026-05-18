@@ -86,6 +86,44 @@ input {
   width: min(1160px, calc(100vw - 28px));
 }
 
+.compact-shell {
+  padding-top: 26px;
+}
+
+.record-console {
+  background:
+    radial-gradient(circle at 92% 12%, rgba(255, 75, 216, 0.22), transparent 180px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), transparent 42%),
+    var(--paper);
+  border: 7px solid var(--line);
+  border-radius: 28px;
+  box-shadow: 12px 12px 0 var(--shadow);
+  margin: 0 auto 24px 0;
+  max-width: 860px;
+  padding: clamp(18px, 3vw, 28px);
+}
+
+.record-copy {
+  max-width: 740px;
+}
+
+.record-copy h1 {
+  font-size: clamp(2.25rem, 7vw, 5.2rem);
+  margin-bottom: 12px;
+}
+
+.record-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.record-toolbar .badge {
+  min-height: 48px;
+}
+
 .hero {
   align-items: end;
   display: grid;

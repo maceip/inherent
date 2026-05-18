@@ -1,0 +1,73 @@
+{
+  "version": "0.1.0-demo",
+  "backend": "onnx",
+  "artifact_format": "onnx",
+  "training_hash": "bundled-browser-demo-model",
+  "input_tensor": "mel_spectrogram",
+  "output_tensor": "intent_output",
+  "head_order": [
+    "isInteresting",
+    "hasAddToListIntent",
+    "hasTermSearchQuery",
+    "hasPhotoQuery",
+    "hasCalendarEvent",
+    "hasCreateDocIntent",
+    "hasPersonContext",
+    "hasEventContext",
+    "hasDeepResearchIntent",
+    "hasInsightIntent",
+    "hasBrowsingAgentIntent",
+    "hasCallingAgentIntent",
+    "hasStartTimerIntent"
+  ],
+  "threshold_keys_in_order": [
+    "is_interesting",
+    "has_add_to_list_intent",
+    "has_term_search_query",
+    "has_photo_query",
+    "has_calendar_event",
+    "has_create_doc_intent",
+    "has_person_context",
+    "has_event_context",
+    "has_deep_research_intent",
+    "has_insight_intent",
+    "has_browsing_agent_intent",
+    "has_calling_agent_intent",
+    "has_start_timer_intent"
+  ],
+  "default_thresholds": {
+    "is_interesting": 0.57,
+    "has_add_to_list_intent": 0.55,
+    "has_term_search_query": 0.58,
+    "has_photo_query": 0.6,
+    "has_calendar_event": 0.6,
+    "has_create_doc_intent": 0.62,
+    "has_person_context": 0.56,
+    "has_event_context": 0.58,
+    "has_deep_research_intent": 0.62,
+    "has_insight_intent": 0.6,
+    "has_browsing_agent_intent": 0.62,
+    "has_calling_agent_intent": 0.62,
+    "has_start_timer_intent": 0.58
+  },
+  "artifact_size_bytes": 815,
+  "reports": {},
+  "notes": "Bundled static ONNX demo model for the GitHub Pages microphone interface. Replace with an exported trained Inherent model when publishing production quality scores.",
+  "config": {
+    "model": {
+      "backbone": "browser_demo_energy_gate",
+      "num_heads": 13,
+      "mel_bins": 128,
+      "max_frames": 3000
+    },
+    "training": {
+      "padding": "runtime_static"
+    },
+    "export": {
+      "onnx_opset": 13,
+      "onnx_static_frames": 3000,
+      "browser_padding_value": -12.0,
+      "browser_inference_window_seconds": 2.5
+    }
+  }
+}
