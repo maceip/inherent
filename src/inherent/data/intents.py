@@ -6,9 +6,9 @@ Coverage map (verified against HF + ModelScope as of 2026-05):
 |---|---|---|
 | hasAddToListIntent | SLURP `lists_*`, MASSIVE `lists_createoradd` | clean coverage |
 | hasTermSearchQuery | SLURP `qa_*`, MINDS-14, MASSIVE `general_quirky` | clean coverage |
-| hasCalendarEvent | SLURP `calendar_*`, STOP `reminder` | clean coverage |
-| hasPersonContext | SLURP `recommendation` | proxy coverage |
-| hasEventContext | SLURP `calendar_query` | proxy coverage |
+| hasCalendarEvent | SLURP calendar set/create/update/remove, STOP reminder/event | clean coverage |
+| hasPersonContext | NONE | synthesize via TTS (data/synthesis.py) |
+| hasEventContext | NONE | synthesize via TTS |
 | hasStartTimerIntent | SLURP/MASSIVE `alarm_set`, STOP `timer` | clean coverage |
 | hasPhotoQuery | NONE | synthesize via TTS (data/synthesis.py) |
 | hasCreateDocIntent | NONE | synthesize via TTS |
@@ -17,9 +17,9 @@ Coverage map (verified against HF + ModelScope as of 2026-05):
 | hasBrowsingAgentIntent | NONE | synthesize via TTS |
 | hasCallingAgentIntent | NONE | synthesize via TTS |
 
-This module assembles the public-source manifest. It maps clean public coverage
-where available and two documented SLURP proxy heads. Synthetic data is built by
-synthesis.py and merged separately.
+This module assembles the public-source manifest. Public label mapping is driven
+by config so proxy labels cannot silently stand in for heads that need explicit
+coverage. Synthetic data is built by synthesis.py and merged separately.
 """
 
 from __future__ import annotations
@@ -64,14 +64,33 @@ PUBLIC_SOURCE_LOADERS = {
     "stop": "load_stop",
 }
 
-PUBLIC_CORPUS_HEADS = (
-    "hasAddToListIntent",
-    "hasTermSearchQuery",
-    "hasCalendarEvent",
-    "hasPersonContext",
-    "hasEventContext",
-    "hasStartTimerIntent",
-)
+PUBLIC_INTENT_HEADS = {
+    "add_to_list": "hasAddToListIntent",
+    "term_search": "hasTermSearchQuery",
+    "calendar_event": "hasCalendarEvent",
+    "person_context": "hasPersonContext",
+    "event_context": "hasEventContext",
+    "start_timer": "hasStartTimerIntent",
+}
+
+DEFAULT_PUBLIC_INTENT_MAPPING = {
+    "add_to_list": ("slurp.lists_*", "speech_massive.lists_createoradd"),
+    "term_search": ("slurp.qa_*", "speech_massive.general_quirky"),
+    "calendar_event": (
+        "slurp.calendar_set",
+        "slurp.calendar_create",
+        "slurp.calendar_update",
+        "slurp.calendar_remove",
+        "stop.reminder",
+        "stop.event",
+    ),
+    "start_timer": (
+        "slurp.alarm_set",
+        "speech_massive.alarm_set",
+        "stop.timer",
+        "stop.alarm",
+    ),
+}
 
 SPEECH_MASSIVE_CONFIGS = (
     "ar-SA",
@@ -88,33 +107,42 @@ SPEECH_MASSIVE_CONFIGS = (
     "vi-VN",
 )
 
-STOP_PARSE_HEAD_TOKENS = {
-    "hasCalendarEvent": (
-        "IN:CREATE_EVENT",
-        "IN:UPDATE_EVENT",
-        "IN:DELETE_EVENT",
-        "IN:GET_EVENT",
-        "IN:CREATE_REMINDER",
-        "IN:UPDATE_REMINDER",
-        "IN:DELETE_REMINDER",
-        "IN:GET_REMINDER",
-    ),
-    "hasStartTimerIntent": (
-        "IN:CREATE_TIMER",
-        "IN:UPDATE_TIMER",
-        "IN:DELETE_TIMER",
-        "IN:GET_TIMER",
-        "IN:CREATE_ALARM",
-        "IN:UPDATE_ALARM",
-        "IN:DELETE_ALARM",
-        "IN:GET_ALARM",
-    ),
+STOP_PUBLIC_ENTRY_TOKENS = {
+    "calendar_event": {
+        "reminder": (
+            "IN:CREATE_REMINDER",
+            "IN:UPDATE_REMINDER",
+            "IN:DELETE_REMINDER",
+            "IN:GET_REMINDER",
+        ),
+        "event": (
+            "IN:CREATE_EVENT",
+            "IN:UPDATE_EVENT",
+            "IN:DELETE_EVENT",
+            "IN:GET_EVENT",
+        ),
+    },
+    "start_timer": {
+        "timer": (
+            "IN:CREATE_TIMER",
+            "IN:UPDATE_TIMER",
+            "IN:DELETE_TIMER",
+            "IN:GET_TIMER",
+        ),
+        "alarm": (
+            "IN:CREATE_ALARM",
+            "IN:UPDATE_ALARM",
+            "IN:DELETE_ALARM",
+            "IN:GET_ALARM",
+        ),
+    },
 }
 
 
 def build_index(intents_cfg: dict, data_root: Path) -> list[IntentSample]:
     """Assemble the manifest from configured public sources."""
     samples: list[IntentSample] = []
+    public_mapping = _public_intent_mapping(intents_cfg)
     for manifest in intents_cfg.get("recorded", []):
         samples.extend(load_recorded_manifest(_resolve_path(manifest, data_root)))
     for manifest in intents_cfg.get("synthetic_manifests", []):
@@ -123,15 +151,15 @@ def build_index(intents_cfg: dict, data_root: Path) -> list[IntentSample]:
     sources = _configured_public_sources(intents_cfg, required=not samples)
     for source in sources:
         if source == "slurp":
-            samples.extend(load_slurp(data_root / "slurp"))
+            samples.extend(load_slurp(data_root / "slurp", public_mapping=public_mapping))
         elif source in {"speech_massive", "massive"}:
-            samples.extend(load_speech_massive(data_root / "speech_massive"))
+            samples.extend(load_speech_massive(data_root / "speech_massive", public_mapping=public_mapping))
         elif source == "stop":
-            samples.extend(load_stop(data_root / "stop"))
+            samples.extend(load_stop(data_root / "stop", public_mapping=public_mapping))
         else:
             raise ValueError(f"unknown public intent source {source!r}")
     if sources:
-        _require_public_intent_coverage(samples)
+        _require_public_intent_coverage(samples, _required_public_heads(public_mapping, sources))
     elif not samples:
         raise ValueError("no intent sources configured")
     return samples
@@ -181,38 +209,50 @@ def load_recorded_manifest(path: Path) -> list[IntentSample]:
     return samples
 
 
-def load_slurp(root: Path) -> list[IntentSample]:
+def load_slurp(
+    root: Path,
+    *,
+    public_mapping: Mapping[str, Sequence[str]] | None = None,
+) -> list[IntentSample]:
     """SLURP — 177h / 72k, 18 domains, 60 intents.
 
     Map SLURP intents to our 13-head labels:
       lists_* → hasAddToListIntent
       qa_* → hasTermSearchQuery
-      calendar_create → hasCalendarEvent
+      calendar set/create/update/remove → hasCalendarEvent
       alarm_set → hasStartTimerIntent
-      recommendation → hasPersonContext
-      calendar_query → hasEventContext
     """
     return _load_hf_intent_dataset(
         dataset_id="qmeeus/slurp",
         root=root,
         source_name="slurp",
         configs=("default",),
+        public_mapping=public_mapping,
     )
 
 
-def load_speech_massive(root: Path) -> list[IntentSample]:
+def load_speech_massive(
+    root: Path,
+    *,
+    public_mapping: Mapping[str, Sequence[str]] | None = None,
+) -> list[IntentSample]:
     """FBK-MT/Speech-MASSIVE — 48.8k recordings, 12 langs, same 60 intents as MASSIVE."""
     return _load_hf_intent_dataset(
         dataset_id="FBK-MT/Speech-MASSIVE",
         root=root,
         source_name="speech_massive",
         configs=SPEECH_MASSIVE_CONFIGS,
+        public_mapping=public_mapping,
     )
 
 
-def load_stop(root: Path) -> list[IntentSample]:
+def load_stop(
+    root: Path,
+    *,
+    public_mapping: Mapping[str, Sequence[str]] | None = None,
+) -> list[IntentSample]:
     """Meta STOP — ~200h, includes TTS-augmented split."""
-    return _load_stop_local(root)
+    return _load_stop_local(root, public_mapping=_coerce_public_mapping(public_mapping))
 
 
 def load_falai(root: Path) -> list[IntentSample]:
@@ -291,17 +331,70 @@ def _configured_public_sources(intents_cfg: dict, *, required: bool) -> tuple[st
     return sources
 
 
+def _public_intent_mapping(intents_cfg: dict) -> dict[str, tuple[str, ...]]:
+    configured = intents_cfg.get("public")
+    if configured is None:
+        return dict(DEFAULT_PUBLIC_INTENT_MAPPING)
+    return _coerce_public_mapping(configured)
+
+
+def _coerce_public_mapping(
+    public_mapping: Mapping[str, Sequence[str]] | None,
+) -> dict[str, tuple[str, ...]]:
+    if public_mapping is None:
+        return dict(DEFAULT_PUBLIC_INTENT_MAPPING)
+    mapping: dict[str, tuple[str, ...]] = {}
+    for key, entries in public_mapping.items():
+        if key not in PUBLIC_INTENT_HEADS:
+            raise ValueError(f"unknown public intent key {key!r}")
+        normalized_entries = tuple(str(entry).strip() for entry in entries)
+        if not normalized_entries or any(entry == "" for entry in normalized_entries):
+            raise ValueError(f"public intent key {key!r} must list at least one source pattern")
+        for entry in normalized_entries:
+            _public_entry_source(entry)
+        mapping[str(key)] = normalized_entries
+    return mapping
+
+
+def _public_entry_source(entry: str) -> str:
+    if "." not in entry:
+        raise ValueError(f"public intent entry {entry!r} must be '<source>.<pattern>'")
+    source, _ = entry.split(".", 1)
+    source = "speech_massive" if source == "massive" else source
+    if source not in PUBLIC_SOURCE_LOADERS:
+        raise ValueError(f"unknown public intent source in entry {entry!r}")
+    return source
+
+
+def _required_public_heads(
+    public_mapping: Mapping[str, Sequence[str]],
+    sources: Sequence[str],
+) -> tuple[str, ...]:
+    canonical_sources = {"speech_massive" if source == "massive" else source for source in sources}
+    heads: list[str] = []
+    for key, entries in public_mapping.items():
+        if any(_public_entry_source(str(entry)) in canonical_sources for entry in entries):
+            heads.append(PUBLIC_INTENT_HEADS[key])
+    return tuple(dict.fromkeys(heads))
+
+
 def _load_hf_intent_dataset(
     *,
     dataset_id: str,
     root: Path,
     source_name: str,
     configs: Sequence[str],
+    public_mapping: Mapping[str, Sequence[str]] | None,
 ) -> list[IntentSample]:
+    resolved_mapping = _coerce_public_mapping(public_mapping)
     samples: list[IntentSample] = []
     for hf_row in _iter_hf_rows(dataset_id=dataset_id, root=root, configs=configs):
         label = _extract_label(hf_row.row, hf_row.features)
-        head_labels = _heads_for_public_intent(label)
+        head_labels = _heads_for_public_intent(
+            label,
+            source_name=source_name,
+            public_mapping=resolved_mapping,
+        )
         if not any(head_labels.values()):
             continue
         audio = _extract_audio(hf_row.row, hf_row.dataset_id, hf_row.split, hf_row.row_index)
@@ -359,7 +452,7 @@ def _iter_hf_rows(*, dataset_id: str, root: Path, configs: Sequence[str]) -> Ite
                 )
 
 
-def _load_stop_local(root: Path) -> list[IntentSample]:
+def _load_stop_local(root: Path, *, public_mapping: Mapping[str, Sequence[str]]) -> list[IntentSample]:
     if not root.is_dir():
         raise FileNotFoundError(
             f"STOP corpus root not found: {root}. Download STOP from Meta/fairseq first; "
@@ -370,7 +463,7 @@ def _load_stop_local(root: Path) -> list[IntentSample]:
         raise ValueError(f"no STOP .tsv/.ltr/.parse manifest triples found under {root}")
     samples: list[IntentSample] = []
     for tsv_path, ltr_path, parse_path in triples:
-        samples.extend(_load_stop_manifest_triple(tsv_path, ltr_path, parse_path))
+        samples.extend(_load_stop_manifest_triple(tsv_path, ltr_path, parse_path, public_mapping))
     if not samples:
         raise ValueError(f"STOP corpus {root} produced no mapped intent samples")
     return samples
@@ -386,7 +479,12 @@ def _find_stop_manifest_triples(root: Path) -> list[tuple[Path, Path, Path]]:
     return triples
 
 
-def _load_stop_manifest_triple(tsv_path: Path, ltr_path: Path, parse_path: Path) -> list[IntentSample]:
+def _load_stop_manifest_triple(
+    tsv_path: Path,
+    ltr_path: Path,
+    parse_path: Path,
+    public_mapping: Mapping[str, Sequence[str]],
+) -> list[IntentSample]:
     audio_paths = _read_stop_tsv(tsv_path)
     transcripts = ltr_path.read_text().splitlines()
     parses = parse_path.read_text().splitlines()
@@ -398,7 +496,7 @@ def _load_stop_manifest_triple(tsv_path: Path, ltr_path: Path, parse_path: Path)
 
     samples: list[IntentSample] = []
     for audio_path, transcript, parse in zip(audio_paths, transcripts, parses, strict=True):
-        head_labels = _heads_for_stop_parse(parse)
+        head_labels = _heads_for_stop_parse(parse, public_mapping=public_mapping)
         if not any(head_labels.values()):
             continue
         samples.append(
@@ -430,37 +528,50 @@ def _read_stop_tsv(path: Path) -> list[Path]:
     return audio_paths
 
 
-def _heads_for_public_intent(label: str) -> dict[str, bool]:
+def _heads_for_public_intent(
+    label: str,
+    *,
+    source_name: str = "slurp",
+    public_mapping: Mapping[str, Sequence[str]] | None = None,
+) -> dict[str, bool]:
     normalized = _normalize_label(label)
+    mapping = _coerce_public_mapping(public_mapping)
     labels = _empty_intent_labels()
-    if normalized.startswith("lists_") or normalized in {"add_to_list", "create_list", "lists_createoradd"}:
-        labels["hasAddToListIntent"] = True
-    if normalized.startswith("qa_") or normalized in {"general_quirky", "query", "search_query"}:
-        labels["hasTermSearchQuery"] = True
-    if normalized in {
-        "calendar_set",
-        "calendar_create",
-        "calendar_update",
-        "calendar_remove",
-        "reminder_set",
-        "reminder_create",
-    }:
-        labels["hasCalendarEvent"] = True
-    if normalized.startswith("recommendation"):
-        labels["hasPersonContext"] = True
-    if normalized.startswith("calendar_query"):
-        labels["hasEventContext"] = True
-    if normalized in {"alarm_set", "timer_set", "timer_create", "alarm_create"}:
-        labels["hasStartTimerIntent"] = True
+    for key, entries in mapping.items():
+        if any(_public_entry_matches(entry, source_name, normalized) for entry in entries):
+            labels[PUBLIC_INTENT_HEADS[key]] = True
     return labels
 
 
-def _heads_for_stop_parse(parse: str) -> dict[str, bool]:
+def _public_entry_matches(entry: str, source_name: str, normalized_label: str) -> bool:
+    entry_source, pattern = entry.split(".", 1)
+    entry_source = "speech_massive" if entry_source == "massive" else entry_source
+    source_name = "speech_massive" if source_name == "massive" else source_name
+    if entry_source != source_name:
+        return False
+    normalized_pattern = _normalize_label(pattern.rstrip("*"))
+    if pattern.endswith("*"):
+        return normalized_label.startswith(normalized_pattern)
+    return normalized_label == normalized_pattern
+
+
+def _heads_for_stop_parse(
+    parse: str,
+    *,
+    public_mapping: Mapping[str, Sequence[str]] | None = None,
+) -> dict[str, bool]:
+    mapping = _coerce_public_mapping(public_mapping)
     labels = _empty_intent_labels()
     upper_parse = parse.upper()
-    for head, tokens in STOP_PARSE_HEAD_TOKENS.items():
-        if any(token in upper_parse for token in tokens):
-            labels[head] = True
+    for key, entries in mapping.items():
+        for entry in entries:
+            _, pattern = entry.split(".", 1)
+            if _public_entry_source(entry) != "stop":
+                continue
+            normalized_pattern = _normalize_label(pattern)
+            tokens = STOP_PUBLIC_ENTRY_TOKENS.get(key, {}).get(normalized_pattern, ())
+            if any(token in upper_parse for token in tokens):
+                labels[PUBLIC_INTENT_HEADS[key]] = True
     return labels
 
 
@@ -562,12 +673,17 @@ def _normalize_label(value: str) -> str:
     return normalized
 
 
-def _require_public_intent_coverage(samples: Sequence[IntentSample]) -> None:
+def _require_public_intent_coverage(
+    samples: Sequence[IntentSample],
+    required_heads: Sequence[str],
+) -> None:
     if not samples:
         raise ValueError("intent index contains no samples")
+    if not required_heads:
+        return
     positives = {
         head: sum(1 for sample in samples if sample.head_labels.get(head, False))
-        for head in PUBLIC_CORPUS_HEADS
+        for head in required_heads
     }
     missing = [head for head, count in positives.items() if count == 0]
     if missing:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from functools import partial
 from itertools import cycle
 from pathlib import Path
@@ -26,6 +26,7 @@ except RuntimeError:
 
 from .. import HEAD_ORDER
 from ..config import Config
+from ..eval.evaluate import evaluate_gates, evaluate_per_head
 from ..models import JointAudioIntentModel
 from .dataset import (
     MelBatch,
@@ -34,6 +35,14 @@ from .dataset import (
     compute_balanced_pos_weight,
     compute_label_balanced_sample_weights,
 )
+
+
+@dataclass(frozen=True)
+class EvalResult:
+    loss: float
+    metrics: dict[str, dict[str, float]] | None = None
+    gates: dict | None = None
+    metrics_error: str | None = None
 
 
 def focal_bce_loss(
@@ -128,6 +137,7 @@ def train(
     )
 
     best_eval_loss = float("inf")
+    best_release_key: tuple[float, ...] | None = None
     loader_iter = cycle(train_loader)
     for step in range(1, cfg.training.max_steps + 1):
         model.train()
@@ -148,6 +158,17 @@ def train(
         scheduler.step()
 
         if step == 1 or step % cfg.training.save_every_steps == 0:
+            print(
+                json.dumps(
+                    {
+                        "event": "train_step",
+                        "step": step,
+                        "max_steps": cfg.training.max_steps,
+                        "train_loss": float(loss.item()),
+                    }
+                ),
+                flush=True,
+            )
             _save_checkpoint(
                 output_dir / "last.pt",
                 cfg,
@@ -159,9 +180,46 @@ def train(
                 init_checkpoint=init_checkpoint,
             )
         if eval_loader is not None and (step == 1 or step % cfg.training.eval_every_steps == 0):
-            eval_loss = _evaluate_loss(model, eval_loader, cfg, device, pos_weight)
+            eval_result = _evaluate(model, eval_loader, cfg, device, pos_weight)
+            eval_loss = eval_result.loss
+            print(
+                json.dumps(
+                    {
+                        "event": "eval_step",
+                        "step": step,
+                        "max_steps": cfg.training.max_steps,
+                        "eval_loss": float(eval_loss),
+                        "release_selection_key": _release_selection_key(
+                            eval_result.metrics,
+                            eval_result.gates,
+                            eval_loss,
+                        ),
+                        "gate_passed": None if eval_result.gates is None else eval_result.gates["passed"],
+                        "metric_summary": _metric_summary(eval_result.metrics),
+                        "metrics_error": eval_result.metrics_error,
+                        "best_eval_loss": None
+                        if best_eval_loss == float("inf")
+                        else float(best_eval_loss),
+                    }
+                ),
+                flush=True,
+            )
             if eval_loss < best_eval_loss:
                 best_eval_loss = eval_loss
+                _save_checkpoint(
+                    output_dir / "best_loss.pt",
+                    cfg,
+                    model,
+                    optimizer,
+                    scheduler,
+                    step,
+                    loss.item(),
+                    eval_loss=eval_loss,
+                    init_checkpoint=init_checkpoint,
+                )
+            release_key = _release_selection_key(eval_result.metrics, eval_result.gates, eval_loss)
+            if best_release_key is None or release_key > best_release_key:
+                best_release_key = release_key
                 _save_checkpoint(
                     output_dir / "best.pt",
                     cfg,
@@ -172,6 +230,10 @@ def train(
                     loss.item(),
                     eval_loss=eval_loss,
                     init_checkpoint=init_checkpoint,
+                    selection_key=release_key,
+                    gate_result=eval_result.gates,
+                    metrics=eval_result.metrics,
+                    metrics_error=eval_result.metrics_error,
                 )
 
     _save_checkpoint(
@@ -224,7 +286,7 @@ def _model_lengths(batch: MelBatch, cfg: Config) -> torch.Tensor | None:
     return batch.lengths
 
 
-def _evaluate_loss(
+def _evaluate(
     model: JointAudioIntentModel,
     loader: DataLoader,
     cfg: Config,
@@ -234,6 +296,8 @@ def _evaluate_loss(
     model.eval()
     total_loss = 0.0
     total_samples = 0
+    scores: list[np.ndarray] = []
+    labels: list[np.ndarray] = []
     with torch.no_grad():
         for batch in loader:
             moved = _move_batch(batch, device)
@@ -249,9 +313,49 @@ def _evaluate_loss(
             batch_size = moved.mel.size(0)
             total_loss += loss.item() * batch_size
             total_samples += batch_size
+            scores.append(torch.sigmoid(logits).cpu().numpy())
+            labels.append(moved.targets.cpu().numpy())
     if total_samples == 0:
         raise ValueError("eval manifest produced zero samples")
-    return total_loss / total_samples
+    eval_loss = total_loss / total_samples
+    try:
+        metrics = evaluate_per_head(np.concatenate(scores, axis=0), np.concatenate(labels, axis=0))
+    except ValueError as exc:
+        return EvalResult(loss=eval_loss, metrics_error=str(exc))
+    gates = evaluate_gates(metrics, cfg.eval.pass_threshold)
+    return EvalResult(loss=eval_loss, metrics=metrics, gates=gates)
+
+
+def _release_selection_key(
+    metrics: dict[str, dict[str, float]] | None,
+    gates: dict | None,
+    eval_loss: float,
+) -> tuple[float, ...]:
+    if metrics is None:
+        return (-1.0, float("-inf"), float("-inf"), float("-inf"), float("-inf"), -eval_loss)
+    intent_aucs = [metrics[head]["auc"] for head in HEAD_ORDER[1:]]
+    intent_fprs = [metrics[head]["fpr_at_recall_95"] for head in HEAD_ORDER[1:]]
+    return (
+        1.0 if gates and gates["passed"] else 0.0,
+        float(np.min(intent_aucs)),
+        float(np.mean(intent_aucs)),
+        -float(np.max(intent_fprs)),
+        metrics["isInteresting"]["auc"],
+        -eval_loss,
+    )
+
+
+def _metric_summary(metrics: dict[str, dict[str, float]] | None) -> dict[str, float] | None:
+    if metrics is None:
+        return None
+    intent_aucs = [metrics[head]["auc"] for head in HEAD_ORDER[1:]]
+    intent_fprs = [metrics[head]["fpr_at_recall_95"] for head in HEAD_ORDER[1:]]
+    return {
+        "is_interesting_auc": metrics["isInteresting"]["auc"],
+        "intent_mean_auc": float(np.mean(intent_aucs)),
+        "intent_min_auc": float(np.min(intent_aucs)),
+        "intent_max_fpr_at_recall_95": float(np.max(intent_fprs)),
+    }
 
 
 def _move_batch(batch: MelBatch, device: torch.device) -> MelBatch:
@@ -293,11 +397,19 @@ def _save_checkpoint(
     *,
     eval_loss: float | None = None,
     init_checkpoint: Path | None = None,
+    selection_key: tuple[float, ...] | None = None,
+    gate_result: dict | None = None,
+    metrics: dict[str, dict[str, float]] | None = None,
+    metrics_error: str | None = None,
 ) -> None:
     checkpoint = {
         "step": step,
         "train_loss": train_loss,
         "eval_loss": eval_loss,
+        "selection_key": selection_key,
+        "gate_result": gate_result,
+        "metrics": metrics,
+        "metrics_error": metrics_error,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),

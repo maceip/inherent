@@ -30,9 +30,12 @@ from .. import HEAD_ORDER
 from ..config import Config
 from ..data.intents import load_synthetic_manifest
 from ..data.labeling import normalize_audio_manifest, split_label_manifest, validate_label_manifest
+from ..data.labeling import validate_split_label_coverage
 from ..data.manifest import RawAudioLabelSample, from_intent, write_raw_audio_manifest
 from ..data.schema import ALLOWED_RAW_LABEL_COLUMNS
-from ..eval.evaluate import evaluate_checkpoint, format_metrics
+from ..eval.evaluate import evaluate_checkpoint, evaluate_gates, format_metrics
+from ..eval.parity import _labels, _score_tflite
+from ..eval.thresholds import apply_thresholds_to_metadata, calibrate_thresholds
 from ..export.registry import get_backend, list_backends
 from ..features import materialize_mel_manifest
 from ..training.train import train as train_model
@@ -52,8 +55,13 @@ class RecordedBuildResult:
     checkpoint: Path | None
     metrics_json: Path | None
     metrics_csv: Path | None
+    eval_gates_json: Path | None
+    test_metrics_json: Path | None
+    test_metrics_csv: Path | None
+    test_gates_json: Path | None
     export_dir: Path | None
     export_results: list[dict] | None
+    threshold_calibration_reports: list[Path] | None
     model_group_json: Path | None
 
 
@@ -112,6 +120,8 @@ def build_recorded_library(
         split_dir,
         previous_model_group=previous_group,
     )
+    split_label_coverage = validate_split_label_coverage(split_manifests)
+    (run / "split_label_coverage.json").write_text(json.dumps(split_label_coverage, indent=2))
     split_identity_index = _write_split_identity_index(split_manifests, run / "split_identity_index.json")
 
     raw_dir = work / "raw"
@@ -137,8 +147,13 @@ def build_recorded_library(
     checkpoint: Path | None = None
     metrics_json: Path | None = None
     metrics_csv: Path | None = None
+    eval_gates_json: Path | None = None
+    test_metrics_json: Path | None = None
+    test_metrics_csv: Path | None = None
+    test_gates_json: Path | None = None
     export_dir: Path | None = None
     export_results: list[dict] | None = None
+    threshold_calibration_reports: list[Path] | None = None
     if train:
         train_model(
             runtime_cfg,
@@ -159,6 +174,25 @@ def build_recorded_library(
         metrics_csv = run / "eval_metrics.csv"
         metrics_json.write_text(json.dumps(metrics, indent=2))
         metrics_csv.write_text(format_metrics(metrics) + "\n")
+        eval_gates_json = run / "eval_gates.json"
+        eval_gates = evaluate_gates(metrics, runtime_cfg.eval.pass_threshold)
+        eval_gates_json.write_text(json.dumps(eval_gates, indent=2))
+        _require_gate_passed(eval_gates, "eval", eval_gates_json)
+
+        test_metrics = evaluate_checkpoint(
+            checkpoint,
+            mel_manifests["test"],
+            batch_size=runtime_cfg.training.batch_size,
+            device=eval_device,
+        )
+        test_metrics_json = run / "test_metrics.json"
+        test_metrics_csv = run / "test_metrics.csv"
+        test_metrics_json.write_text(json.dumps(test_metrics, indent=2))
+        test_metrics_csv.write_text(format_metrics(test_metrics) + "\n")
+        test_gates_json = run / "test_gates.json"
+        test_gates = evaluate_gates(test_metrics, runtime_cfg.eval.pass_threshold)
+        test_gates_json.write_text(json.dumps(test_gates, indent=2))
+        _require_gate_passed(test_gates, "test", test_gates_json)
     if export:
         if checkpoint is None:
             checkpoint = _select_checkpoint(run)
@@ -168,6 +202,11 @@ def build_recorded_library(
             cfg=runtime_cfg,
             export_dir=export_dir,
             backend_names=export_backends,
+        )
+        threshold_calibration_reports = _calibrate_export_thresholds(
+            export_results=export_results,
+            eval_manifest=mel_manifests["eval"],
+            run_dir=run,
         )
 
     model_group_json = None
@@ -188,8 +227,13 @@ def build_recorded_library(
                 "checkpoint": checkpoint,
                 "metrics_json": metrics_json,
                 "metrics_csv": metrics_csv,
+                "eval_gates_json": eval_gates_json,
+                "test_metrics_json": test_metrics_json,
+                "test_metrics_csv": test_metrics_csv,
+                "test_gates_json": test_gates_json,
                 "export_dir": export_dir,
                 "export_results": export_results,
+                "threshold_calibration_reports": threshold_calibration_reports,
             },
         )
 
@@ -206,8 +250,13 @@ def build_recorded_library(
         checkpoint=checkpoint,
         metrics_json=metrics_json,
         metrics_csv=metrics_csv,
+        eval_gates_json=eval_gates_json,
+        test_metrics_json=test_metrics_json,
+        test_metrics_csv=test_metrics_csv,
+        test_gates_json=test_gates_json,
         export_dir=export_dir,
         export_results=export_results,
+        threshold_calibration_reports=threshold_calibration_reports,
         model_group_json=model_group_json,
     )
 
@@ -317,6 +366,79 @@ def _selected_export_backends(cfg: Config, backend_names: Sequence[str] | None) 
     return deduped
 
 
+def _calibrate_export_thresholds(
+    *,
+    export_results: list[dict],
+    eval_manifest: Path,
+    run_dir: Path,
+) -> list[Path]:
+    labels = _labels(eval_manifest, limit=None)
+    reports: list[Path] = []
+    score_cache: dict[Path, dict] = {}
+    output_dir = run_dir / "threshold_calibration"
+    for result in export_results:
+        metadata_path_value = result.get("metadata_path")
+        if not metadata_path_value:
+            continue
+        metadata_path = Path(metadata_path_value).expanduser()
+        if not metadata_path.is_file():
+            continue
+        tflite_path = _tflite_artifact_for_threshold_calibration(result)
+        if tflite_path is None or not tflite_path.is_file():
+            continue
+        tflite_path = tflite_path.resolve()
+        if tflite_path not in score_cache:
+            scores = _score_tflite(tflite_path, eval_manifest, limit=None)
+            score_cache[tflite_path] = {
+                "mel_manifest": str(eval_manifest),
+                "rows": int(labels.shape[0]),
+                "score_source": "tflite_runtime_static",
+                "artifact": str(tflite_path),
+                **calibrate_thresholds(scores, labels, require_all_heads=True),
+            }
+        report = {
+            "backend": result.get("backend"),
+            "metadata_path": str(metadata_path),
+            **score_cache[tflite_path],
+        }
+        report_path = output_dir / f"{_safe_report_name(str(result.get('backend') or metadata_path.stem))}.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+
+        metadata = json.loads(metadata_path.read_text())
+        updated = apply_thresholds_to_metadata(metadata, report)
+        updated["threshold_calibration"]["report"] = str(report_path)
+        metadata_path.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\n")
+        reports.append(report_path)
+    return reports
+
+
+def _tflite_artifact_for_threshold_calibration(result: dict) -> Path | None:
+    artifacts = result.get("artifacts") or {}
+    for key in ("tflite", "tflite_source"):
+        value = artifacts.get(key)
+        if value:
+            return Path(value).expanduser()
+    return None
+
+
+def _safe_report_name(value: str) -> str:
+    safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.lower())
+    return safe.strip("_") or "export"
+
+
+def _require_gate_passed(gates: dict, split: str, gate_path: Path) -> None:
+    if gates.get("passed") is True:
+        return
+    failed = [
+        name
+        for name, check in gates.get("checks", {}).items()
+        if check.get("passed") is False
+    ]
+    first = failed[0] if failed else "unknown"
+    raise ValueError(f"{split} release gates failed: first_failed={first}; report={gate_path}")
+
+
 def _validate_label_report(
     labels_path: Path,
     *,
@@ -405,7 +527,7 @@ def _write_explicit_splits(input_manifest: Path, split_dir: Path) -> None:
 
 
 def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, previous_model_group: Path) -> None:
-    heldout_by_id = _load_previous_heldout_ids(previous_model_group)
+    heldout_by_id = _load_previous_heldout_records(previous_model_group)
     if not heldout_by_id:
         raise ValueError(f"previous model group has no eval/test identities: {previous_model_group}")
     with input_manifest.open(newline="") as f:
@@ -424,10 +546,23 @@ def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, pre
     for index, row in enumerate(rows, start=2):
         identity = _row_audio_identity(row, input_manifest.parent)
         group = _row_group_key(row, index)
-        previous_split = heldout_by_id.get(identity)
+        previous_record = heldout_by_id.get(identity)
+        previous_split = None if previous_record is None else previous_record["split"]
         row_identities.append((row, identity, group))
-        if previous_split is None:
+        if previous_record is None:
             continue
+        previous_labels = previous_record["labels"]
+        current_labels = _labels_from_row(row)
+        if current_labels != previous_labels:
+            changed = [
+                head
+                for head in HEAD_ORDER
+                if current_labels.get(head) != previous_labels.get(head)
+            ]
+            raise ValueError(
+                "previous heldout labels changed for identity "
+                f"{identity}: first_changed_head={changed[0]}"
+            )
         matched_heldout.add(identity)
         existing = forced_by_group.get(group)
         if existing is not None and existing != previous_split:
@@ -464,22 +599,47 @@ def _write_splits_from_previous_group(input_manifest: Path, split_dir: Path, pre
         raise ValueError(f"previous-model-group split reuse produced empty splits: {missing_splits}")
 
 
-def _load_previous_heldout_ids(previous_model_group: Path) -> dict[str, str]:
+def _load_previous_heldout_records(previous_model_group: Path) -> dict[str, dict]:
     index_path = previous_model_group / "split_identity_index.json"
     if not index_path.is_file():
         raise FileNotFoundError(f"previous model group missing split identity index: {index_path}")
     data = json.loads(index_path.read_text())
     if tuple(data.get("head_order", ())) != HEAD_ORDER:
         raise ValueError("previous split identity index head_order does not match current HEAD_ORDER")
-    heldout: dict[str, str] = {}
+    heldout: dict[str, dict] = {}
     for split in ("eval", "test"):
         for row in data.get("splits", {}).get(split, []):
             identity = row["identity"]
             existing = heldout.get(identity)
-            if existing is not None and existing != split:
-                raise ValueError(f"audio identity appears in both {existing!r} and {split!r}: {identity}")
-            heldout[identity] = split
+            labels = _labels_from_record(row, index_path)
+            if existing is not None:
+                if existing["split"] != split:
+                    raise ValueError(f"audio identity appears in both {existing['split']!r} and {split!r}: {identity}")
+                if existing["labels"] != labels:
+                    raise ValueError(f"audio identity has inconsistent heldout labels: {identity}")
+            heldout[identity] = {"split": split, "labels": labels}
     return heldout
+
+
+def _labels_from_record(row: dict, path: Path) -> dict[str, str]:
+    labels = row.get("labels")
+    if not isinstance(labels, dict):
+        raise ValueError(f"previous split identity row missing labels in {path}")
+    missing = [head for head in HEAD_ORDER if head not in labels]
+    if missing:
+        raise ValueError(f"previous split identity row missing label heads {missing} in {path}")
+    return {head: _normalize_label_value(str(labels[head]), path, head) for head in HEAD_ORDER}
+
+
+def _labels_from_row(row: dict[str, str]) -> dict[str, str]:
+    return {head: row[head].strip() for head in HEAD_ORDER}
+
+
+def _normalize_label_value(value: str, path: Path, head: str) -> str:
+    normalized = value.strip()
+    if normalized not in {"0", "1"}:
+        raise ValueError(f"previous split identity row has invalid label {value!r} for {head} in {path}")
+    return normalized
 
 
 def _require_no_group_leakage(rows: list[dict[str, str]]) -> None:
@@ -600,8 +760,15 @@ def _write_model_group_json(
         "checkpoint": path_or_none(result_paths["checkpoint"]),
         "metrics_json": path_or_none(result_paths["metrics_json"]),
         "metrics_csv": path_or_none(result_paths["metrics_csv"]),
+        "eval_gates_json": path_or_none(result_paths["eval_gates_json"]),
+        "test_metrics_json": path_or_none(result_paths["test_metrics_json"]),
+        "test_metrics_csv": path_or_none(result_paths["test_metrics_csv"]),
+        "test_gates_json": path_or_none(result_paths["test_gates_json"]),
         "export_dir": path_or_none(result_paths["export_dir"]),
         "export_results": result_paths["export_results"],
+        "threshold_calibration_reports": [
+            str(path) for path in (result_paths["threshold_calibration_reports"] or [])
+        ],
     }
     output = group_dir / "model_group.json"
     output.parent.mkdir(parents=True, exist_ok=True)

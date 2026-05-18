@@ -154,15 +154,18 @@ PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.par
 ```
 
 After choosing the artifact, calibrate runtime thresholds from the held-out
-manifest instead of shipping the seed defaults. The manifest must include at
-least one positive and one negative for every head; fixture-only smoke manifests
-need `--allow-missing-heads` and should not be used for release thresholds.
+manifest instead of shipping the seed defaults. `inherent-build-recorded`
+does this automatically for exported TFLite/LiteRT artifacts and rewrites the
+metadata sidecar. For manual exports, the manifest must include at least one
+positive and one negative for every head; fixture-only smoke manifests need
+`--allow-missing-heads` and should not be used for release thresholds.
 
 ```bash
 PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.eval.thresholds \
   --tflite-model artifacts/quality/inherent.tflite \
   --mel-manifest data/quality_eval_manifest.csv \
-  --json-out artifacts/quality/reports/thresholds.json
+  --json-out artifacts/quality/reports/thresholds.json \
+  --metadata-in artifacts/quality/inherent.metadata.json
 ```
 
 ## Install
@@ -264,8 +267,14 @@ zero-padded before invocation.
 ```python
 import numpy as np
 import onnxruntime as ort
-from inherent import HEAD_ORDER, THRESHOLD_KEYS, DEFAULT_THRESHOLDS_BY_KEY
+import json
+from pathlib import Path
+
+from inherent import HEAD_ORDER, THRESHOLD_KEYS
 from inherent.features.frontend import AudioFrontend
+
+metadata = json.loads(Path("artifacts/v0.1.0/inherent.metadata.json").read_text())
+thresholds = metadata["default_thresholds"]
 
 # 1. Raw 16 kHz mono WAV -> mel-spectrogram, shape [T, 128].
 frontend = AudioFrontend("data/audio_frontend.tflite")
@@ -278,7 +287,7 @@ scores = session.run(None, {"mel_spectrogram": mel})[0][0]   # shape [13]
 
 # 3. Apply per-label thresholds.
 for name, key, score in zip(HEAD_ORDER, THRESHOLD_KEYS, scores):
-    if score >= DEFAULT_THRESHOLDS_BY_KEY[key]:
+    if score >= thresholds[key]:
         print(f"{name}: {score:.2f}")
 ```
 
@@ -289,12 +298,13 @@ equivalent mel implementation (librosa, torchaudio, a mobile DSP block) as
 long as the output is `[T, 128]` float32 with the same bin and hop layout.
 
 On Android or iOS, load `inherent.tflite` with the standard LiteRT or TFLite
-interpreter: the input tensor is `mel_spectrogram`, the output is
-`intent_output`, and the public tensors are `[1, 3000, 128]` float32 in and
-`[1, 13]` float32 out. MLX users load the package under `<output-dir>/mlx/`. The
-metadata sidecar (`inherent.metadata.json`) carries the head order and
-default thresholds so app code can pin to them at load time instead of
-hard-coding.
+interpreter. The logical input is `mel_spectrogram` and the logical output is
+`intent_output`, but app code should bind the actual TFLite tensors from
+`runtime_tensor_contract` in `inherent.metadata.json` because converters may
+rename them. The public tensors are `[1, 3000, 128]` float32 in and `[1, 13]`
+float32 out. MLX users load the package under `<output-dir>/mlx/`. The metadata
+sidecar carries the head order and calibrated thresholds so app code can pin to
+them at load time instead of hard-coding.
 
 The full integration contract (tensor names, shapes, head order, threshold
 keys, versioning rules) is at `contracts/runtime_contract.md`.

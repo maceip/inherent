@@ -73,8 +73,15 @@ def _result_to_json(result) -> dict:
         "checkpoint": None if result.checkpoint is None else str(result.checkpoint),
         "metrics_json": None if result.metrics_json is None else str(result.metrics_json),
         "metrics_csv": None if result.metrics_csv is None else str(result.metrics_csv),
+        "eval_gates_json": None if result.eval_gates_json is None else str(result.eval_gates_json),
+        "test_metrics_json": None if result.test_metrics_json is None else str(result.test_metrics_json),
+        "test_metrics_csv": None if result.test_metrics_csv is None else str(result.test_metrics_csv),
+        "test_gates_json": None if result.test_gates_json is None else str(result.test_gates_json),
         "export_dir": None if result.export_dir is None else str(result.export_dir),
         "export_results": result.export_results,
+        "threshold_calibration_reports": None
+        if result.threshold_calibration_reports is None
+        else [str(path) for path in result.threshold_calibration_reports],
         "model_group_json": None if result.model_group_json is None else str(result.model_group_json),
     }
 

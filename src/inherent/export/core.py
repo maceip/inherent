@@ -146,6 +146,7 @@ def write_artifact_metadata(
         tflite_io = inspect_tflite_io_contract(artifact_path)
         validate_tflite_io_contract(tflite_io, cfg)
         metadata["tflite_io"] = tflite_io
+        metadata["runtime_tensor_contract"] = tflite_runtime_tensor_contract(tflite_io)
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2))
 
@@ -210,12 +211,35 @@ def inspect_tflite_io_contract(tflite_path: Path) -> dict[str, Any]:
     input_detail = input_details[0]
     output_detail = output_details[0]
     return {
+        "input_index": int(input_detail["index"]),
         "input_name": str(input_detail["name"]),
         "input_shape": [int(dim) for dim in input_detail["shape"]],
         "input_dtype": np.dtype(input_detail["dtype"]).name,
+        "output_index": int(output_detail["index"]),
         "output_name": str(output_detail["name"]),
         "output_shape": [int(dim) for dim in output_detail["shape"]],
         "output_dtype": np.dtype(output_detail["dtype"]).name,
+    }
+
+
+def tflite_runtime_tensor_contract(tflite_io: dict[str, Any]) -> dict[str, Any]:
+    """Return the runtime binding contract Android should consume from metadata."""
+    return {
+        "selection": "single_input_single_output_index",
+        "input": {
+            "logical_name": INPUT_TENSOR_NAME,
+            "actual_name": str(tflite_io.get("input_name", "")),
+            "index": int(tflite_io.get("input_index", 0)),
+            "shape": _shape_list_from_contract(tflite_io, "input_shape"),
+            "dtype": str(tflite_io.get("input_dtype", "")),
+        },
+        "output": {
+            "logical_name": OUTPUT_TENSOR_NAME,
+            "actual_name": str(tflite_io.get("output_name", "")),
+            "index": int(tflite_io.get("output_index", 0)),
+            "shape": _shape_list_from_contract(tflite_io, "output_shape"),
+            "dtype": str(tflite_io.get("output_dtype", "")),
+        },
     }
 
 
@@ -247,6 +271,10 @@ def _shape_from_contract(tflite_io: dict[str, Any], key: str) -> tuple[int, ...]
         return tuple(int(dim) for dim in tflite_io[key])
     except TypeError as exc:
         raise ValueError(f"TFLite IO contract {key} must be a sequence of ints") from exc
+
+
+def _shape_list_from_contract(tflite_io: dict[str, Any], key: str) -> list[int]:
+    return list(_shape_from_contract(tflite_io, key))
 
 
 def artifact_path(output_dir: Path, configured: str, default_name: str) -> Path:

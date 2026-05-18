@@ -26,6 +26,8 @@ def test_base_config_names_only_implemented_default_sources():
     assert "person_context" not in cfg.data.intents["public"]
     assert "event_context" not in cfg.data.intents["public"]
     assert "calling_agent" not in cfg.data.intents["public"]
+    assert "person_context" in cfg.data.intents["synthetic"]
+    assert "event_context" in cfg.data.intents["synthetic"]
 
 
 def test_pipeline_configs_load():
@@ -42,6 +44,12 @@ def test_pipeline_configs_load():
 
 
 def test_export_config_rejects_unknown_quantization():
+    default_export = ExportConfig()
+    assert default_export.quantization == "float16"
+    assert default_export.require_tflite_parity is True
+    assert default_export.tflite_parity_max_abs_diff is not None
+    assert default_export.tflite_parity_mean_abs_diff is not None
+
     for quantization in ("int8", "float16", "float32"):
         assert ExportConfig(quantization=quantization).quantization == quantization
 
@@ -67,14 +75,39 @@ def test_export_configs_pin_android_tflite_shape():
         assert cfg.export.onnx_static_frames == cfg.model.max_frames == 3000
 
 
+def test_release_configs_use_float16_with_required_tflite_parity():
+    for path in (
+        "configs/base.yaml",
+        "configs/baseline.yaml",
+        "configs/production.yaml",
+        "configs/production_quality.yaml",
+        "configs/production_local.yaml",
+        "configs/production_local_shard_a.yaml",
+        "configs/production_local_shard_b.yaml",
+        "configs/high_performance_local.yaml",
+    ):
+        cfg = Config.load(path)
+
+        assert cfg.export.quantization == "float16"
+        assert cfg.export.require_tflite_parity is True
+        assert cfg.export.tflite_parity_max_abs_diff is not None
+        assert cfg.export.tflite_parity_mean_abs_diff is not None
+
+
+def test_smoke_configs_can_opt_out_of_release_parity_for_fast_debug_exports():
+    for path in ("configs/fixture_quality.yaml", "configs/smoke.yaml"):
+        cfg = Config.load(path)
+
+        assert cfg.export.quantization == "int8"
+        assert cfg.export.require_tflite_parity is False
+
+
 def test_default_config_sources_cover_all_intent_heads():
     cfg = Config.load("configs/base.yaml")
     public_labels = [
         "lists_createoradd",
         "qa_factoid",
         "calendar_set",
-        "recommendation",
-        "calendar_query",
         "alarm_set",
     ]
     covered = {

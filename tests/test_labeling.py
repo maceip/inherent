@@ -7,7 +7,9 @@ from inherent.data import directedness, intents
 from inherent.data.labeling import (
     LABEL_TEMPLATE_COLUMNS,
     normalize_audio_manifest,
+    split_label_coverage_report,
     split_label_manifest,
+    validate_split_label_coverage,
     validate_label_manifest,
     write_label_template,
 )
@@ -93,6 +95,70 @@ def test_validate_normalize_and_split_label_manifest(tmp_path):
     for row in split_rows:
         groups.setdefault((row["speaker_id"], row["session_id"]), set()).add(row["split"])
     assert all(len(splits) == 1 for splits in groups.values())
+
+
+def test_split_label_coverage_requires_each_head_in_each_split(tmp_path):
+    split_manifests = {}
+    for split in ("train", "eval", "test"):
+        manifest = tmp_path / f"{split}.csv"
+        rows = []
+        for head in HEAD_ORDER[1:]:
+            rows.append(
+                label_row(
+                    tmp_path / f"{split}_{head}.wav",
+                    speaker_id=f"{split}-{head}",
+                    session_id="1",
+                    positive_head=head,
+                )
+            )
+        rows.append(label_row(tmp_path / f"{split}_negative.wav", speaker_id=f"{split}-negative", session_id="1"))
+        write_label_manifest(manifest, rows)
+        split_manifests[split] = manifest
+
+    report = split_label_coverage_report(split_manifests)
+
+    assert report["ok"] is True
+    validate_split_label_coverage(split_manifests)
+
+    rows = list(csv.DictReader(split_manifests["eval"].open()))
+    rows = [row for row in rows if row["hasStartTimerIntent"] != "1"]
+    write_label_manifest(split_manifests["eval"], rows)
+
+    report = split_label_coverage_report(split_manifests)
+    assert report["ok"] is False
+    assert any(issue["head"] == "hasStartTimerIntent" for issue in report["issues"])
+
+
+def test_split_label_manifest_stratifies_label_coverage_when_feasible(tmp_path):
+    rows = []
+    for replica in range(3):
+        for head in HEAD_ORDER[1:]:
+            rows.append(
+                label_row(
+                    tmp_path / f"{replica}_{head}.wav",
+                    speaker_id=f"{replica}-{head}",
+                    session_id="1",
+                    positive_head=head,
+                )
+            )
+        rows.append(
+            label_row(
+                tmp_path / f"{replica}_negative.wav",
+                speaker_id=f"{replica}-negative",
+                session_id="1",
+            )
+        )
+    manifest = tmp_path / "labels.csv"
+    write_label_manifest(manifest, rows)
+
+    split_label_manifest(manifest, tmp_path / "splits", seed=0)
+
+    validate_split_label_coverage(
+        {
+            split: tmp_path / "splits" / f"{split}_manifest.csv"
+            for split in ("train", "eval", "test")
+        }
+    )
 
 
 def test_recorded_loaders_accept_collection_metadata(tmp_path):

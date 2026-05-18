@@ -155,7 +155,13 @@ def maybe_write_tflite_parity_report(
 ) -> Path | None:
     eval_manifest = Path(cfg.training.eval_manifest).expanduser() if cfg.training.eval_manifest else None
     if eval_manifest is None or not eval_manifest.is_file():
+        if cfg.export.require_tflite_parity:
+            raise FileNotFoundError(
+                "TFLite parity is required but training.eval_manifest is missing or does not exist: "
+                f"{cfg.training.eval_manifest!r}"
+            )
         return None
+    require_tflite_parity_thresholds(cfg)
 
     from ..eval.parity import compare_checkpoint_tflite
 
@@ -184,6 +190,7 @@ def maybe_write_tflite_parity_report(
 
 
 def enforce_tflite_parity_thresholds(report: dict, cfg: Config) -> None:
+    require_tflite_parity_thresholds(cfg)
     comparison = report.get("comparisons", {}).get("checkpoint_runtime_static_vs_tflite_runtime_static")
     if comparison is None:
         raise ValueError("TFLite parity report missing checkpoint_runtime_static_vs_tflite_runtime_static comparison")
@@ -198,6 +205,18 @@ def enforce_tflite_parity_thresholds(report: dict, cfg: Config) -> None:
         failures.append(f"mean_abs_diff={mean_abs_diff:.6g} > {mean_threshold:.6g}")
     if failures:
         raise ValueError("TFLite parity drift exceeds export threshold: " + "; ".join(failures))
+
+
+def require_tflite_parity_thresholds(cfg: Config) -> None:
+    if not cfg.export.require_tflite_parity:
+        return
+    missing = []
+    if cfg.export.tflite_parity_max_abs_diff is None:
+        missing.append("tflite_parity_max_abs_diff")
+    if cfg.export.tflite_parity_mean_abs_diff is None:
+        missing.append("tflite_parity_mean_abs_diff")
+    if missing:
+        raise ValueError(f"TFLite parity is required but export thresholds are unset: {missing}")
 
 
 def convert_onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path, cfg: Config) -> None:

@@ -137,7 +137,7 @@ class TrainingConfig:
 class ExportConfig:
     backend: str = "tflite"
     delegates: list[str] = field(default_factory=lambda: ["cpu"])
-    quantization: str = "int8"
+    quantization: str = "float16"
     representative_dataset_size: int = 500
     target_size_mb: int = 50
     output_path: str = "artifacts/inherent.tflite"
@@ -151,9 +151,10 @@ class ExportConfig:
     onnx_static_frames: int | None = RUNTIME_MAX_FRAMES
     strict_tensor_names: bool = True
     parity_atol: float = 1.0e-4
+    require_tflite_parity: bool = True
     tflite_parity_eval_samples: int = 64
-    tflite_parity_max_abs_diff: float | None = None
-    tflite_parity_mean_abs_diff: float | None = None
+    tflite_parity_max_abs_diff: float | None = 0.005
+    tflite_parity_mean_abs_diff: float | None = 0.0005
 
     def __post_init__(self) -> None:
         if self.backend not in {"tflite", "litert", "onnx", "mlx", "litertlm", "all"}:
@@ -188,6 +189,10 @@ class ExportConfig:
             raise ValueError("parity_atol must be positive")
         if self.tflite_parity_eval_samples < 1:
             raise ValueError("tflite_parity_eval_samples must be positive")
+        if self.require_tflite_parity and (
+            self.tflite_parity_max_abs_diff is None or self.tflite_parity_mean_abs_diff is None
+        ):
+            raise ValueError("required TFLite parity needs both max_abs_diff and mean_abs_diff thresholds")
         if self.tflite_parity_max_abs_diff is not None and self.tflite_parity_max_abs_diff <= 0:
             raise ValueError("tflite_parity_max_abs_diff must be positive when set")
         if self.tflite_parity_mean_abs_diff is not None and self.tflite_parity_mean_abs_diff <= 0:

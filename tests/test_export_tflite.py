@@ -15,6 +15,8 @@ from inherent.export.core import load_export_model
 from inherent.export.litert import (
     convert_saved_model_to_tflite,
     enforce_tflite_parity_thresholds,
+    maybe_write_tflite_parity_report,
+    require_tflite_parity_thresholds,
     validate_tflite_export_config,
 )
 
@@ -27,9 +29,11 @@ def _tflite_io(
     output_dtype="float32",
 ):
     return {
+        "input_index": 0,
         "input_name": "serving_default_mel_spectrogram:0",
         "input_shape": list(input_shape),
         "input_dtype": input_dtype,
+        "output_index": 42,
         "output_name": "StatefulPartitionedCall:0",
         "output_shape": list(output_shape),
         "output_dtype": output_dtype,
@@ -62,6 +66,12 @@ def test_write_metadata_writes_contract_fields(tmp_path, monkeypatch):
     assert tuple(data["head_order"]) == HEAD_ORDER
     assert tuple(data["threshold_keys_in_order"]) == THRESHOLD_KEYS
     assert data["tflite_size_bytes"] == len(b"tflite")
+    assert data["runtime_tensor_contract"]["selection"] == "single_input_single_output_index"
+    assert data["runtime_tensor_contract"]["input"]["logical_name"] == "mel_spectrogram"
+    assert data["runtime_tensor_contract"]["input"]["index"] == 0
+    assert data["runtime_tensor_contract"]["output"]["logical_name"] == "intent_output"
+    assert data["runtime_tensor_contract"]["output"]["actual_name"] == "StatefulPartitionedCall:0"
+    assert data["runtime_tensor_contract"]["output"]["index"] == 42
     assert data["tflite_io"]["input_shape"] == [1, 3000, 128]
     assert data["tflite_io"]["output_shape"] == [1, 13]
     assert ":" in data["training_hash"]
@@ -120,6 +130,36 @@ def test_tflite_parity_thresholds_fail_on_excessive_drift():
         report,
         Config(export=ExportConfig(tflite_parity_max_abs_diff=0.03, tflite_parity_mean_abs_diff=0.002)),
     )
+
+
+def test_required_tflite_parity_fails_when_eval_manifest_missing(tmp_path):
+    cfg = Config(
+        training=TrainingConfig(eval_manifest=str(tmp_path / "missing.csv")),
+        export=ExportConfig(require_tflite_parity=True),
+    )
+
+    with pytest.raises(FileNotFoundError, match="TFLite parity is required"):
+        maybe_write_tflite_parity_report(
+            checkpoint_path=tmp_path / "best.pt",
+            cfg=cfg,
+            tflite_path=tmp_path / "inherent.tflite",
+            output_dir=tmp_path,
+            backend_name="tflite",
+        )
+
+
+def test_required_tflite_parity_needs_thresholds():
+    cfg = Config(
+        export=ExportConfig(
+            require_tflite_parity=False,
+            tflite_parity_max_abs_diff=None,
+            tflite_parity_mean_abs_diff=None,
+        )
+    )
+    cfg.export.require_tflite_parity = True
+
+    with pytest.raises(ValueError, match="thresholds are unset"):
+        require_tflite_parity_thresholds(cfg)
 
 
 def test_export_rejects_checkpoint_with_different_padding_mode(tmp_path):

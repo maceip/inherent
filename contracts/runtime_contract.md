@@ -20,7 +20,8 @@ A single TFLite file plus a metadata sidecar:
 - `inherent.tflite` — joint audio→intent classifier. The release default is
   float16 TFLite for quality parity; int8 remains a performance target only
   when export-time TFLite parity gates pass on a held-out manifest.
-- `inherent.metadata.json` — head names, thresholds, version, training hash
+- `inherent.metadata.json` — head names, calibrated thresholds, runtime tensor
+  indexes/names, version, training hash
 
 Additional export backends can produce:
 
@@ -77,13 +78,35 @@ This order **matches cosmo's `AudioGatekeepingModel$PredictionThresholds` field 
   "training_hash": "<git sha + data manifest hash>",
   "input_tensor": "mel_spectrogram",
   "output_tensor": "intent_output",
+  "runtime_tensor_contract": {
+    "selection": "single_input_single_output_index",
+    "input": {
+      "logical_name": "mel_spectrogram",
+      "actual_name": "serving_default_mel_spectrogram:0",
+      "index": 0,
+      "shape": [1, 3000, 128],
+      "dtype": "float32"
+    },
+    "output": {
+      "logical_name": "intent_output",
+      "actual_name": "StatefulPartitionedCall:0",
+      "index": 42,
+      "shape": [1, 13],
+      "dtype": "float32"
+    }
+  },
   "head_order": ["isInteresting", "hasAddToListIntent", ...],
   "default_thresholds": {
-    "is_interesting": 0.5,
-    "has_add_to_list_intent": 0.5,
+    "is_interesting": 0.57,
+    "has_add_to_list_intent": 0.65,
     ...
   },
-  "notes": "Trained on public corpora + TTS-synthesized; thresholds tuned on hand-recorded eval set."
+  "threshold_calibration": {
+    "mel_manifest": "data/eval_manifest.csv",
+    "rows": 1234,
+    "score_source": "tflite_runtime_static",
+    "min_recall": 0.95
+  }
 }
 ```
 
@@ -99,7 +122,10 @@ This order **matches cosmo's `AudioGatekeepingModel$PredictionThresholds` field 
 
 ## Integration
 
-Genesis loads the model via `LiteRtCreateModelFromBuffer` + CPU accelerator (`kLiteRtHwAcceleratorCpu`). No delegate. See `app/src/main/kotlin/com/google/research/air/cosmo/gatekeeping/backend/InherentBackend.kt`.
+Genesis loads the model via LiteRT/TFLite and binds tensors by
+`runtime_tensor_contract`, not by hard-coded converter names. CPU is the
+required baseline path; GPU/NPU/TPU delegate use is allowed only after the
+export parity report passes for the exact artifact.
 
 ## What inherent does NOT provide
 

@@ -29,11 +29,13 @@ data:
     public:
       add_to_list: [slurp.lists_*, speech_massive.lists_createoradd]
       term_search: [slurp.qa_*, speech_massive.general_quirky]
-      calendar_event: [slurp.calendar_*]
+      calendar_event: [slurp.calendar_set, slurp.calendar_create, slurp.calendar_update, slurp.calendar_remove]
       start_timer: [slurp.alarm_set, speech_massive.alarm_set]
     synthetic:
       photo_query: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       create_doc: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      person_context: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      event_context: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       deep_research: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       insight: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
       browsing_agent: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
@@ -59,7 +61,7 @@ training:
 export:
   backend: all
   delegates: [cpu, gpu, tpu]
-  quantization: int8
+  quantization: float16
   representative_dataset_size: 1000
   target_size_mb: 50
   output_path: artifacts/high_performance/inherent.tflite
@@ -73,6 +75,10 @@ export:
   onnx_static_frames: 3000
   strict_tensor_names: false
   parity_atol: 1.0e-4
+  require_tflite_parity: true
+  tflite_parity_eval_samples: 256
+  tflite_parity_max_abs_diff: 0.005
+  tflite_parity_mean_abs_diff: 0.0005
 
 eval:
   held_out_audio_dir: data/eval_recorded
