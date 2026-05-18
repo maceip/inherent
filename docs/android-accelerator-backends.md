@@ -35,6 +35,8 @@ Pixel/DarwiNN custom-op artifact.
 4. GPU fallback: useful where NPU is absent or rejects the model.
    - Use LiteRT GPU where available.
    - Do not make GPU a release blocker; it is a middle tier between NPU and CPU.
+   - Keep `float16` and `float32` TFLite exports available as
+     quality-preserving fallbacks when INT8 calibration drifts.
 
 ## Export Delegates
 

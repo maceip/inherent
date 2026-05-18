@@ -14,6 +14,7 @@ from . import NUM_HEADS
 RUNTIME_MEL_BINS = 128
 RUNTIME_MAX_FRAMES = 3000
 SUPPORTED_BACKBONE = "small_conformer"
+SUPPORTED_QUANTIZATIONS = {"int8", "float16", "float32"}
 
 
 @dataclass
@@ -168,6 +169,8 @@ class ExportConfig:
         unexpected_delegates = sorted(set(self.delegates) - allowed_delegates)
         if unexpected_delegates:
             raise ValueError(f"unsupported export delegates: {unexpected_delegates}")
+        if self.quantization not in SUPPORTED_QUANTIZATIONS:
+            raise ValueError(f"export.quantization must be one of {sorted(SUPPORTED_QUANTIZATIONS)}")
         if self.representative_dataset_size < 1:
             raise ValueError("representative_dataset_size must be positive")
         if self.target_size_mb < 1:

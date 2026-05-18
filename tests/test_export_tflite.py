@@ -1,4 +1,6 @@
 import json
+import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,7 +10,7 @@ from inherent import HEAD_ORDER, THRESHOLD_KEYS
 from inherent.config import Config, ExportConfig
 from inherent.export import core, tflite
 from inherent.export.core import representative_sample_indexes, validate_tflite_io_contract
-from inherent.export.litert import validate_tflite_export_config
+from inherent.export.litert import convert_saved_model_to_tflite, validate_tflite_export_config
 
 
 def _tflite_io(
@@ -118,3 +120,51 @@ def test_representative_samples_are_label_stratified():
     assert selected.sum(axis=0).min() >= 1.0
     assert np.any(selected.sum(axis=1) == 0.0)
     assert indexes != list(range(16))
+
+
+@pytest.mark.parametrize(
+    ("quantization", "expected"),
+    [
+        ("int8", {"optimizations": ["DEFAULT"], "supported_ops": ["INT8"], "supported_types": []}),
+        ("float16", {"optimizations": ["DEFAULT"], "supported_ops": [], "supported_types": ["float16"]}),
+        ("float32", {"optimizations": [], "supported_ops": [], "supported_types": []}),
+    ],
+)
+def test_saved_model_conversion_supports_quality_fallback_quantization_modes(
+    tmp_path,
+    monkeypatch,
+    quantization,
+    expected,
+):
+    converter = _FakeConverter()
+    fake_tf = SimpleNamespace(
+        float16="float16",
+        lite=SimpleNamespace(
+            Optimize=SimpleNamespace(DEFAULT="DEFAULT"),
+            OpsSet=SimpleNamespace(TFLITE_BUILTINS_INT8="INT8"),
+            TFLiteConverter=SimpleNamespace(from_saved_model=lambda _path: converter),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "tensorflow", fake_tf)
+
+    output = tmp_path / "inherent.tflite"
+    convert_saved_model_to_tflite(
+        tmp_path / "saved_model",
+        Config(export=ExportConfig(quantization=quantization)),
+        output,
+    )
+
+    assert output.read_bytes() == b"TFLITE"
+    assert converter.optimizations == expected["optimizations"]
+    assert converter.target_spec.supported_ops == expected["supported_ops"]
+    assert converter.target_spec.supported_types == expected["supported_types"]
+
+
+class _FakeConverter:
+    def __init__(self):
+        self.optimizations = []
+        self.representative_dataset = None
+        self.target_spec = SimpleNamespace(supported_ops=[], supported_types=[])
+
+    def convert(self):
+        return b"TFLITE"

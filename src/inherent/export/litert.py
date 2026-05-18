@@ -85,9 +85,7 @@ def export_to_tflite(
     *,
     backend_name: str = "tflite",
 ) -> ExportResult:
-    """PyTorch -> ONNX -> TFLite int8 with representative dataset for activation calibration."""
-    if cfg.export.quantization != "int8":
-        raise ValueError(f"unsupported export.quantization {cfg.export.quantization!r}; only 'int8' is allowed")
+    """PyTorch -> ONNX -> TFLite with the configured runtime quantization mode."""
     validate_tflite_export_config(cfg)
     checkpoint_path = Path(checkpoint_path).expanduser()
     output_dir = Path(output_dir).expanduser()
@@ -168,9 +166,15 @@ def convert_saved_model_to_tflite(saved_model_dir: Path, cfg: Config, tflite_pat
         raise RuntimeError("tensorflow is required for TFLite export") from exc
 
     converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.representative_dataset = lambda: representative_dataset(cfg)
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    if cfg.export.quantization == "int8":
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.representative_dataset = lambda: representative_dataset(cfg)
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    elif cfg.export.quantization == "float16":
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.target_spec.supported_types = [tf.float16]
+    elif cfg.export.quantization != "float32":
+        raise ValueError(f"unsupported export.quantization {cfg.export.quantization!r}")
     tflite_model = converter.convert()
     tflite_path.parent.mkdir(parents=True, exist_ok=True)
     tflite_path.write_bytes(tflite_model)

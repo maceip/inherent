@@ -73,9 +73,11 @@ order-of-magnitude latency gap comes from.
 NPUs are usually the fastest path for a model this small because the workload
 is matrix-heavy and quantizes well to INT8. The catch is that not every
 device ships one and the kernel coverage varies by vendor — fall back to GPU
-or CPU when the delegate refuses an op. The un-optimized PyTorch row is
-included for completeness: it shows what the same single-pass model costs
-if you skip the export step entirely.
+or CPU when the delegate refuses an op. When INT8 calibration hurts quality,
+export `float16` or `float32` TFLite as the quality-preserving fallback while
+the quantized model is debugged. The un-optimized PyTorch row is included for
+completeness: it shows what the same single-pass model costs if you skip the
+export step entirely.
 
 ### Train from gatekeeper fixtures
 

@@ -5,6 +5,7 @@ import pytest
 from inherent import HEAD_ORDER
 from inherent import INTENT_HEAD_ORDER
 from inherent.config import Config
+from inherent.config import ExportConfig
 from inherent.data import combine_indexes, write_raw_audio_manifest
 from inherent.data.directedness import DirectednessSample
 from inherent.data.intents import _heads_for_public_intent
@@ -38,6 +39,14 @@ def test_pipeline_configs_load():
         "configs/high_performance_local.yaml",
     ):
         assert Config.load(path).model.num_heads == len(HEAD_ORDER)
+
+
+def test_export_config_rejects_unknown_quantization():
+    for quantization in ("int8", "float16", "float32"):
+        assert ExportConfig(quantization=quantization).quantization == quantization
+
+    with pytest.raises(ValueError, match="export.quantization"):
+        ExportConfig(quantization="int4")
 
 
 def test_export_configs_pin_android_tflite_shape():
