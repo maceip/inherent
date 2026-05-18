@@ -32,12 +32,17 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "assets/inherent.onnx" in root_index
     assert "./assets/theme-reference.svg" in styles
     assert 'id="scope"' in root_index
+    assert 'height="148"' in root_index
+    assert 'id="signalPath"' in root_index
+    assert 'id="signalDroplet"' in root_index
     assert 'id="flowHeads"' in root_index
     assert 'id="modelLoader"' in root_index
     assert 'id="modelProgressFill"' in root_index
     assert 'id="routeLabelTitle"' in root_index
+    assert '<details id="routeLabeler"' in root_index
     assert 'id="qualityGates"' in root_index
     assert 'class="donate-head-button"' in root_index
+    assert "training-panel" not in root_index
     assert "Donate labeled speech from the route" in root_index
     assert "Per-head positive" in root_index
     assert "Interesting / no intent" in root_index
@@ -63,6 +68,7 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "FEEDBACK_STORAGE_KEY" in app
     assert "validateFeedbackExample" in app
     assert "donateHeadLabel" in app
+    assert "updateSignalPath" in app
     assert "downloadFeedbackExamples" in app
     assert "analyzeAudio" in app
     assert "recentAudioWindow" in app

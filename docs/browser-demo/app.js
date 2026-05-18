@@ -80,6 +80,8 @@ const state = {
   hannWindow: null,
   lastScores: [],
   lastRecordingStats: null,
+  lastRouteHead: null,
+  lastRouteHasSignal: false,
   pendingFeedbackHead: null,
   feedbackExamples: loadFeedbackExamples(),
 };
@@ -104,10 +106,14 @@ const dom = {
   inferenceBadge: document.getElementById("inferenceBadge"),
   levelFill: document.getElementById("levelFill"),
   scope: document.getElementById("scope"),
+  signalPath: document.getElementById("signalPath"),
+  signalTrace: document.getElementById("signalTrace"),
+  signalDroplet: document.getElementById("signalDroplet"),
   bestMatch: document.getElementById("bestMatch"),
   heads: document.getElementById("heads"),
   flowHeads: document.getElementById("flowHeads"),
   gateScore: document.getElementById("gateScore"),
+  routeLabeler: document.getElementById("routeLabeler"),
   qualityGates: document.getElementById("qualityGates"),
   feedbackTranscript: document.getElementById("feedbackTranscript"),
   feedbackConsent: document.getElementById("feedbackConsent"),
@@ -128,6 +134,7 @@ renderFlowHeads();
 renderFeedbackCount();
 updateQualityGates();
 drawIdleScope();
+updateSignalPath(null, false);
 wireEvents();
 autoLoadDefaultModel();
 
@@ -155,6 +162,14 @@ function wireEvents() {
   if (dom.feedbackConsent) {
     dom.feedbackConsent.addEventListener("change", () => updateQualityGates());
   }
+  if (dom.routeLabeler) {
+    dom.routeLabeler.addEventListener("toggle", () => {
+      document.body.classList.toggle("labeler-open", dom.routeLabeler.open);
+    });
+  }
+  window.addEventListener("resize", () => {
+    updateSignalPath(state.lastRouteHead, state.lastRouteHasSignal);
+  });
 }
 
 async function autoLoadDefaultModel() {
@@ -328,7 +343,10 @@ async function startRecording() {
     state.chunks = [];
     state.lastRecordingStats = null;
     state.pendingFeedbackHead = null;
+    state.lastRouteHead = null;
+    state.lastRouteHasSignal = true;
     state.recording = true;
+    updateSignalPath(null, true);
     updateQualityGates();
 
     state.processorNode.onaudioprocess = (event) => {
@@ -391,6 +409,7 @@ async function stopRecording(runFinalInference) {
   updateRecordingBadge("Mic: idle", false);
   dom.levelFill.style.width = "0%";
   drawIdleScope();
+  updateSignalPath(state.lastRouteHead, Boolean(state.lastScores.length));
 
   if (runFinalInference && state.chunks.length) {
     state.lastRecordingStats = analyzeAudio(mergeChunks(state.chunks), state.inputSampleRate);
@@ -805,6 +824,7 @@ function renderScores(scores) {
     best;
   const matched = matches.includes(selected);
   updateBestMatch(selected, matched);
+  updateSignalPath(matched && selected.index > 0 ? selected.head : null, true);
 }
 
 function updateFlowScores(scores, thresholds) {
@@ -841,6 +861,52 @@ function updateBestMatch(match, matched) {
   label.textContent = matched ? "Matched above threshold" : "Highest score, below threshold";
   name.textContent = prettyHead(match.head);
   score.textContent = `${match.score.toFixed(3)} score, ${match.threshold.toFixed(3)} threshold`;
+}
+
+function updateSignalPath(head, hasSignal) {
+  state.lastRouteHead = head;
+  state.lastRouteHasSignal = hasSignal;
+  if (!dom.signalPath || !dom.signalTrace || !dom.signalDroplet) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const rect = dom.signalPath.getBoundingClientRect();
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    dom.signalPath.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    dom.signalPath.classList.toggle("active", hasSignal);
+    dom.signalPath.classList.toggle("no-hit", hasSignal && !head);
+    dom.signalDroplet.classList.toggle("active", hasSignal);
+    dom.signalDroplet.classList.toggle("no-hit", hasSignal && !head);
+    if (!hasSignal) {
+      dom.signalTrace.setAttribute("d", "");
+      return;
+    }
+
+    const sourceX = width * 0.16;
+    const sourceY = 0;
+    const target = head && dom.flowHeads
+      ? dom.flowHeads.querySelector(`[data-head="${head}"]`)
+      : null;
+    let endX = width * 0.5;
+    let endY = height - 12;
+    if (target) {
+      const targetRect = target.getBoundingClientRect();
+      endX = targetRect.left - rect.left + targetRect.width / 2;
+      endY = targetRect.top - rect.top + Math.min(targetRect.height * 0.48, 54);
+    }
+    const midY = Math.max(28, Math.min(height - 24, endY * 0.55));
+    const bendX = head ? endX : width * 0.42;
+    const d = [
+      `M ${sourceX.toFixed(1)} ${sourceY.toFixed(1)}`,
+      `C ${(sourceX + width * 0.08).toFixed(1)} ${midY.toFixed(1)},`,
+      `${(bendX - width * 0.08).toFixed(1)} ${(midY + 16).toFixed(1)},`,
+      `${endX.toFixed(1)} ${endY.toFixed(1)}`,
+    ].join(" ");
+    dom.signalTrace.setAttribute("d", d);
+    dom.signalDroplet.style.left = `${endX}px`;
+    dom.signalDroplet.style.top = `${endY}px`;
+  });
 }
 
 function updateModelProgress(percent, text, stateClass) {
@@ -1189,10 +1255,13 @@ function resetDemo() {
   state.chunks = [];
   state.lastScores = [];
   state.lastRecordingStats = null;
+  state.lastRouteHead = null;
+  state.lastRouteHasSignal = false;
   state.pendingFeedbackHead = null;
   renderHeadCards();
   renderFlowHeads();
   drawIdleScope();
+  updateSignalPath(null, false);
   updateQualityGates();
   updateRuntimeBadge("Runtime: not loaded", false);
   updateRecordingBadge("Mic: idle", false);

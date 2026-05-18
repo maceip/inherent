@@ -46,12 +46,17 @@
             <span>live oscilloscope</span>
             <span id="modelStatus">Loading bundled model...</span>
           </div>
-          <canvas id="scope" width="960" height="220" aria-label="Live microphone oscilloscope"></canvas>
+          <canvas id="scope" width="960" height="148" aria-label="Live microphone oscilloscope"></canvas>
         </div>
         <p id="recordingStatus" class="status">The model is loading. Recording unlocks automatically when it is ready.</p>
       </section>
 
       <section class="panel flow-panel">
+        <svg id="signalPath" class="signal-path" aria-hidden="true">
+          <path id="signalTrace"></path>
+        </svg>
+        <span id="signalDroplet" class="signal-droplet" aria-hidden="true"></span>
+
         <div class="panel-heading">
           <div>
             <h2>Audio flow</h2>
@@ -88,17 +93,17 @@
 
         <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
 
-        <div class="route-labeler" aria-labelledby="routeLabelTitle">
-          <div class="route-labeler-heading">
+        <details id="routeLabeler" class="route-labeler">
+          <summary class="route-labeler-heading">
             <div>
               <h3 id="routeLabelTitle">Donate labeled speech from the route</h3>
               <p>
-                Use the chunky button on a head to label the last utterance for
-                that specific route. Examples stay local until you export JSONL.
+                Open this drawer to reveal the chunky per-head donation buttons
+                and export locally saved JSONL.
               </p>
             </div>
             <span id="feedbackCount" class="badge">0 saved</span>
-          </div>
+          </summary>
 
           <div class="feedback-grid route-feedback-grid">
             <fieldset>
@@ -145,7 +150,7 @@
             <button id="clearFeedback" type="button" class="danger">Clear saved</button>
           </div>
           <p id="feedbackStatus" class="status">Record a clip, then press a head's donate button. Saved examples stay in this browser until exported.</p>
-        </div>
+        </details>
       </section>
 
       <section class="panel result-panel">
