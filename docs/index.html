@@ -3,80 +3,197 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="0; url=./browser-demo/">
-    <title>Inherent browser demo</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --dojo-red: #fa0900;
-        --dojo-pink: #ff4bd8;
-        --dojo-yellow: #ffe90f;
-        --dojo-green: #60ff7f;
-        --ink: #080914;
-        --paper: #fff8df;
-        --shadow: rgba(8, 9, 20, 0.34);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        align-items: center;
-        background:
-          linear-gradient(180deg, var(--dojo-pink) 0 48px, transparent 48px),
-          linear-gradient(180deg, var(--dojo-red) 0 60%, var(--dojo-yellow) 60%);
-        color: var(--ink);
-        display: grid;
-        font: 18px/1.5 "Trebuchet MS", ui-rounded, system-ui, sans-serif;
-        justify-items: center;
-        margin: 0;
-        min-height: 100vh;
-        padding: 24px;
-      }
-
-      main {
-        background: var(--paper);
-        border: 7px solid var(--ink);
-        border-radius: 28px;
-        box-shadow: 12px 12px 0 var(--shadow);
-        max-width: 720px;
-        padding: clamp(24px, 6vw, 44px);
-        text-align: center;
-      }
-
-      h1 {
-        font-size: clamp(2.25rem, 8vw, 5rem);
-        letter-spacing: -0.07em;
-        line-height: 0.9;
-        margin: 0 0 16px;
-        text-transform: uppercase;
-      }
-
-      p {
-        font-weight: 800;
-        margin: 0 0 20px;
-      }
-
-      a {
-        background: var(--dojo-green);
-        border: 5px solid var(--ink);
-        border-radius: 999px;
-        box-shadow: 5px 5px 0 var(--shadow);
-        color: var(--ink);
-        display: inline-block;
-        font-weight: 900;
-        padding: 12px 18px;
-        text-decoration: none;
-        text-transform: uppercase;
-      }
-    </style>
+    <title>Inherent browser mic demo</title>
+    <link rel="stylesheet" href="./browser-demo/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   </head>
   <body>
-    <main>
-      <h1>Loading Inherent browser demo</h1>
-      <p>Redirecting to the mic dojo interface.</p>
-      <a href="./browser-demo/">Open browser demo</a>
+    <div class="theme-backdrop" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Inherent chop-chop mic dojo</p>
+          <h1>Record speech and watch the intent heads light up.</h1>
+          <p>
+            This static GitHub Pages app loads a trained ONNX export, records
+            microphone audio in the browser, converts it to a 128-bin
+            mel-spectrogram, and visualizes the live Inherent head scores.
+          </p>
+        </div>
+        <div class="hero-card" aria-hidden="true">
+          <img src="./browser-demo/assets/theme-reference.svg" alt="">
+          <span class="hero-sticker">mic -> mel -> heads</span>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>1. Load model</h2>
+            <p>Use the default same-origin artifact paths or pick local files.</p>
+          </div>
+          <span id="runtimeBadge" class="badge">Runtime: not loaded</span>
+        </div>
+
+        <div class="grid two">
+          <label>
+            ONNX model URL
+            <input id="modelUrl" type="url" value="./assets/inherent.onnx">
+          </label>
+          <label>
+            Metadata URL
+            <input id="metadataUrl" type="url" value="./assets/inherent.onnx.metadata.json">
+          </label>
+          <label>
+            Or local ONNX model
+            <input id="modelFile" type="file" accept=".onnx,application/octet-stream">
+          </label>
+          <label>
+            Or local metadata JSON
+            <input id="metadataFile" type="file" accept=".json,application/json">
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="loadModel" type="button">Load ONNX model</button>
+          <button id="resetDemo" type="button" class="secondary">Reset</button>
+        </div>
+        <p id="modelStatus" class="status">Waiting for a model.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>2. Record from mic</h2>
+            <p>GitHub Pages runs over HTTPS, which allows microphone access.</p>
+          </div>
+          <span id="recordingBadge" class="badge">Mic: idle</span>
+        </div>
+
+        <div class="actions">
+          <button id="startRecording" type="button">Start recording</button>
+          <button id="stopRecording" type="button" class="danger" disabled>Stop</button>
+        </div>
+
+        <div class="meter" aria-label="Input level">
+          <span id="levelFill"></span>
+        </div>
+        <div class="scope-wrap">
+          <div class="scope-label">
+            <span>live oscilloscope</span>
+            <span>browser mic waveform</span>
+          </div>
+          <canvas id="scope" width="960" height="220" aria-label="Live microphone oscilloscope"></canvas>
+        </div>
+        <p id="recordingStatus" class="status">Start recording to preview the mic oscilloscope. Load a model to see head hits.</p>
+      </section>
+
+      <section class="panel flow-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Audio flow</h2>
+            <p>Live audio flows from mic to mel frames, then branches into the 12 intent heads.</p>
+          </div>
+          <span class="badge">12 intent heads</span>
+        </div>
+
+        <div class="flow-route" aria-label="Audio flow from microphone to model heads">
+          <div class="flow-step active">
+            <span class="flow-icon">|_|</span>
+            <strong>mic</strong>
+            <small>raw PCM</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step">
+            <span class="flow-icon">~~~</span>
+            <strong>mel</strong>
+            <small>128 bins</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step gate-step">
+            <span class="flow-icon">{}</span>
+            <strong>gate</strong>
+            <small id="gateScore">waiting</small>
+          </div>
+          <span class="flow-arrow">-&gt;</span>
+          <div class="flow-step heads-step">
+            <span class="flow-icon">{}</span>
+            <strong>heads</strong>
+            <small>intent hits</small>
+          </div>
+        </div>
+
+        <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Matched head</h2>
+            <p>Scores are compared against the model metadata thresholds.</p>
+          </div>
+          <span id="inferenceBadge" class="badge">Inference: idle</span>
+        </div>
+
+        <div id="bestMatch" class="best-match">
+          <span class="label">No inference yet</span>
+          <strong>--</strong>
+          <span class="score">--</span>
+        </div>
+
+        <div id="heads" class="heads" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Backend compatibility</h2>
+        <div class="backend-table" role="table" aria-label="Browser backend support">
+          <div role="row" class="table-head">
+            <span role="columnheader">Backend</span>
+            <span role="columnheader">Browser status</span>
+            <span role="columnheader">How this demo uses it</span>
+          </div>
+          <div role="row">
+            <span role="cell"><code>onnx</code></span>
+            <span role="cell" class="supported">Supported</span>
+            <span role="cell">Loaded with ONNX Runtime Web, WebGPU when available, WASM fallback.</span>
+          </div>
+          <div role="row">
+            <span role="cell"><code>tflite</code> / <code>litert</code></span>
+            <span role="cell">Not direct</span>
+            <span role="cell">Native/mobile target in this repo; browser TFLite WASM would be separate.</span>
+          </div>
+          <div role="row">
+            <span role="cell"><code>litertlm</code></span>
+            <span role="cell">Not supported</span>
+            <span role="cell">Runtime package for LiteRT-LM, not GitHub Pages.</span>
+          </div>
+          <div role="row">
+            <span role="cell"><code>mlx</code></span>
+            <span role="cell">Not supported</span>
+            <span role="cell">Apple Silicon runtime package.</span>
+          </div>
+        </div>
+      </section>
     </main>
+
+    <template id="headTemplate">
+      <article class="head-card">
+        <div class="head-label">
+          <strong></strong>
+          <span></span>
+        </div>
+        <div class="bar"><i></i></div>
+      </article>
+    </template>
+
+    <template id="flowHeadTemplate">
+      <article class="flow-head">
+        <span class="node-light"></span>
+        <strong></strong>
+        <small></small>
+      </article>
+    </template>
+
+    <script src="./browser-demo/app.js"></script>
   </body>
 </html>

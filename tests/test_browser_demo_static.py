@@ -22,19 +22,19 @@ def test_browser_demo_documents_supported_backend_matrix():
 
 def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     root_index = (DOCS_DIR / "index.html").read_text()
-    index = (DEMO_DIR / "index.html").read_text()
+    legacy_index = (DEMO_DIR / "index.html").read_text()
     app = (DEMO_DIR / "app.js").read_text()
 
-    assert 'url=./browser-demo/' in root_index
-    assert 'href="./browser-demo/"' in root_index
-    assert "onnxruntime-web" in index
-    assert "./assets/inherent.onnx" in index
-    assert "./assets/inherent.onnx.metadata.json" in index
-    assert "./assets/theme-reference.svg" in index
-    assert 'id="scope"' in index
-    assert 'id="flowHeads"' in index
-    assert 'id="startRecording" type="button">Start recording</button>' in index
-    assert "Start recording to preview the mic oscilloscope" in index
+    assert 'url=../' in legacy_index
+    assert 'href="../"' in legacy_index
+    assert "onnxruntime-web" in root_index
+    assert "./assets/inherent.onnx" in root_index
+    assert "./assets/inherent.onnx.metadata.json" in root_index
+    assert "./browser-demo/assets/theme-reference.svg" in root_index
+    assert 'id="scope"' in root_index
+    assert 'id="flowHeads"' in root_index
+    assert 'id="startRecording" type="button">Start recording</button>' in root_index
+    assert "Start recording to preview the mic oscilloscope" in root_index
     assert "webgpu" in app
     assert "wasm" in app
     assert "mel_spectrogram" in app

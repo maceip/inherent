@@ -1,7 +1,9 @@
 # Inherent browser demo
 
-This directory is a static GitHub Pages demo for running a trained Inherent
-export from the browser microphone.
+The GitHub Pages app is served from the repository's `docs/` root. The
+browser interface itself lives at `docs/index.html`; this directory keeps the
+supporting JavaScript, CSS, theme asset, and compatibility redirect for the
+old `/browser-demo/` URL.
 
 ## Browser backend support
 
@@ -25,9 +27,9 @@ TFLite frontend for your model.
 
 The page uses the supplied dojo/arcade frame as its art direction: red walls,
 yellow-green floor lanes, pink/purple trim, chunky outlined cards, and a
-hand-drawn theme reference at `assets/theme-reference.svg`. Replace that SVG
-with a production image asset if you want the exact uploaded frame served by
-GitHub Pages.
+hand-drawn theme reference at `browser-demo/assets/theme-reference.svg`.
+Replace that SVG with a production image asset if you want the exact uploaded
+frame served by GitHub Pages.
 
 While recording, the UI shows:
 
@@ -45,14 +47,14 @@ Export an ONNX artifact and metadata sidecar:
 PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=src .venv/bin/python -m inherent.scripts.export \
   --checkpoint artifacts/model-groups/001/best.pt \
   --config configs/production.yaml \
-  --output-dir docs/browser-demo/assets \
+  --output-dir docs/assets \
   --backend onnx
 ```
 
 The default page paths are:
 
-- `docs/browser-demo/assets/inherent.onnx`
-- `docs/browser-demo/assets/inherent.onnx.metadata.json`
+- `docs/assets/inherent.onnx`
+- `docs/assets/inherent.onnx.metadata.json`
 
 Model files are ignored by the repository `.gitignore`, so either host the
 model elsewhere and paste its URL into the page, or intentionally add release
@@ -63,7 +65,8 @@ artifacts with `git add -f` when you want GitHub Pages to serve them.
 Configure Pages to serve the repository's `/docs` directory from this branch.
 No GitHub Action is required because the site is plain static HTML/CSS/JS.
 
-The Pages root has `docs/index.html`, which redirects to the demo. These URLs
+The Pages root has `docs/index.html`, which is the demo interface. The old
+`/browser-demo/` path redirects back to the root for compatibility. These URLs
 should both work after Pages finishes publishing:
 
 ```text
