@@ -1,0 +1,71 @@
+# First usable person + event slice (local / OpenF5).
+# 500 prompts × 2 voices = 1,000 clips per head → 2,000 total (~1–2h on MPS).
+# Full 8k/head run is paused until TTS benchmark picks a backend
+# (e.g. Supertone/supertonic-3, ResembleAI/Dramabox).
+model:
+  backbone: small_conformer
+  num_heads: 13
+  hidden_size: 256
+  num_layers: 6
+  num_attention_heads: 4
+  conv_kernel_size: 31
+  mel_bins: 128
+  max_frames: 3000
+
+data:
+  sample_rate: 16000
+  hop_ms: 20
+  mel_bins: 128
+  max_seconds: 60
+  directedness:
+    positives: []
+    negatives: []
+    positive_manifests: []
+    negative_manifests: []
+    labeled_manifests: []
+    max_public_samples_per_source: 1000
+    noise_mix: []
+    snr_db_range: [0, 25]
+  intents:
+    public_sources: []
+    recorded: []
+    synthetic_manifests: [synthetic_person_event_slice_manifest.csv]
+    public: {}
+    synthetic_tts_engine: openf5-tts
+    synthetic_mic_augment: true
+    synthetic_mic_snr_db_range: [10, 22]
+    synthetic:
+      person_context: { count: 500, voices: ['openvoice', 'cosyvoice2'] }
+      event_context: { count: 500, voices: ['openvoice', 'cosyvoice2'] }
+
+training:
+  batch_size: 8
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-2
+  warmup_steps: 100
+  max_steps: 1000
+  eval_every_steps: 200
+  save_every_steps: 200
+  loss: focal_bce
+  focal_gamma: 2.0
+  class_weights: balanced
+  train_manifest: data/smoke_train_manifest.csv
+  eval_manifest: data/smoke_train_manifest.csv
+  num_workers: 0
+  device: mps
+  seed: 1337
+
+export:
+  backend: tflite
+  delegates: [cpu]
+  quantization: float16
+  representative_dataset_size: 32
+  target_size_mb: 50
+  output_path: artifacts/synthetic-person-event-slice/inherent.tflite
+  metadata_path: artifacts/synthetic-person-event-slice/inherent.metadata.json
+  require_tflite_parity: false
+
+eval:
+  held_out_audio_dir: data/eval_recorded
+  metrics: []
+  pass_threshold: {}

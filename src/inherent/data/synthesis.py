@@ -18,8 +18,12 @@ Pipeline:
 License-clean TTS engines (do not use XTTS-v2 or non-Apache F5-TTS):
   - OpenVoice V2 (MIT) — primary, voice cloning
   - SparkAudio/Spark-TTS-0.5B
-  - mrfakename/OpenF5-TTS-Base (Apache fork of F5-TTS)
+  - mrfakename/OpenF5-TTS-Base (Apache fork of F5-TTS) — current default (`openf5-tts`)
   - ModelScope CosyVoice2 (Apache-style) — for accent diversity
+
+Candidates under benchmark (plug in via `synthetic_tts_engine` when integrated):
+  - Supertone/supertonic-3 — https://huggingface.co/Supertone/supertonic-3
+  - ResembleAI/Dramabox — https://huggingface.co/ResembleAI/Dramabox
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from typing import Iterator, NamedTuple
 
 from .. import INTENT_HEAD_ORDER
 from ..features.frontend import SAMPLE_RATE
+from .mic_augment import augment_wav_file, mic_augment_enabled, parse_snr_db_range
 
 
 @dataclass(frozen=True)
@@ -464,8 +469,20 @@ def synthesize(
     head: str,
     output_dir: Path,
     voices: Sequence[str] = DEFAULT_VOICES,
+    *,
+    mic_augment: bool | None = None,
+    mic_snr_db_range: tuple[float, float] | list[float] | None = None,
 ) -> list[SyntheticSample]:
-    return list(iter_synthesize(prompts, head, output_dir, voices=voices))
+    return list(
+        iter_synthesize(
+            prompts,
+            head,
+            output_dir,
+            voices=voices,
+            mic_augment=mic_augment,
+            mic_snr_db_range=mic_snr_db_range,
+        )
+    )
 
 
 def iter_synthesize(
@@ -474,6 +491,9 @@ def iter_synthesize(
     output_dir: Path,
     voices: Sequence[str] = DEFAULT_VOICES,
     runtime: "_OpenF5Runtime | None" = None,
+    *,
+    mic_augment: bool | None = None,
+    mic_snr_db_range: tuple[float, float] | list[float] | None = None,
 ) -> Iterator[SyntheticSample]:
     """Render prompts with the approved OpenF5 model and return manifest rows.
 
@@ -497,6 +517,8 @@ def iter_synthesize(
     _require_openf5_cli()
     if runtime is None:
         runtime = _OpenF5Runtime(_openf5_model_files())
+    use_mic_augment = mic_augment_enabled() if mic_augment is None else mic_augment
+    snr_range = parse_snr_db_range(mic_snr_db_range)
 
     output_root = Path(output_dir).expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
@@ -516,6 +538,8 @@ def iter_synthesize(
                 output_root=output_root,
                 index=index,
                 runtime=runtime,
+                mic_augment=use_mic_augment,
+                mic_snr_db_range=snr_range,
             )
             sample = SyntheticSample(
                 audio_path=wav_path,
@@ -605,6 +629,8 @@ def _synthesize_one(
     output_root: Path,
     index: int,
     runtime: "_OpenF5Runtime",
+    mic_augment: bool = False,
+    mic_snr_db_range: tuple[float, float] = (10.0, 22.0),
 ) -> Path:
     digest = hashlib.sha1(f"{head}:{voice_id}:{index}:{prompt}".encode()).hexdigest()[:16]
     sample_dir = output_root / head / voice_id / digest
@@ -628,6 +654,9 @@ def _synthesize_one(
     final_path.parent.mkdir(parents=True, exist_ok=True)
     normalized_path.replace(final_path)
     shutil.rmtree(sample_dir)
+    if mic_augment:
+        seed = int(hashlib.sha1(f"{head}:{voice_id}:{index}:{prompt}:mic".encode()).hexdigest()[:8], 16)
+        augment_wav_file(final_path, snr_db_range=mic_snr_db_range, seed=seed)
     return final_path
 
 

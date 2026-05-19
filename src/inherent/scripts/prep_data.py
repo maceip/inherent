@@ -125,11 +125,14 @@ def _build_synthetic_manifest(cfg: Config, data_root: Path, output_manifest: Pat
         _write_synthetic_rows(output_manifest, existing_rows)
         return len(existing_rows)
 
+    intents_cfg = cfg.data.intents
+    mic_augment = intents_cfg.get("synthetic_mic_augment", True)
+    mic_snr_db_range = intents_cfg.get("synthetic_mic_snr_db_range")
     runtime = synthesis._OpenF5Runtime(synthesis._openf5_model_files())
     count = len(existing_rows)
     print(
         f"resuming synthetic manifest with {len(existing_rows)} existing rows; "
-        f"{remaining_tasks} remaining",
+        f"{remaining_tasks} remaining; mic_augment={mic_augment}",
         flush=True,
     )
     with partial_manifest.open("w", newline="") as f:
@@ -153,6 +156,8 @@ def _build_synthetic_manifest(cfg: Config, data_root: Path, output_manifest: Pat
                     output_dir,
                     voices=(voice_id,),
                     runtime=runtime,
+                    mic_augment=mic_augment,
+                    mic_snr_db_range=mic_snr_db_range,
                 )
             )
             _write_synthetic_row(writer, sample)
@@ -168,7 +173,7 @@ def _build_synthetic_manifest(cfg: Config, data_root: Path, output_manifest: Pat
 
 def _iter_balanced_synthetic_tasks(cfg: Config) -> Iterable[tuple[str, str, str]]:
     plans: list[tuple[str, list[str], tuple[str, ...]]] = []
-    for head_key, head_cfg in cfg.data.intents.get("synthetic", {}).items():
+    for head_key, head_cfg in _synthetic_head_configs(cfg).items():
         head = _synthetic_head_from_key(head_key)
         prompt_count = int(head_cfg["count"])
         voices = tuple(str(voice) for voice in head_cfg["voices"])
@@ -186,9 +191,18 @@ def _iter_balanced_synthetic_tasks(cfg: Config) -> Iterable[tuple[str, str, str]
                 yield head, prompt, voice_id
 
 
+def _synthetic_head_configs(cfg: Config) -> dict[str, dict]:
+    synthetic = cfg.data.intents.get("synthetic", {})
+    return {
+        key: value
+        for key, value in synthetic.items()
+        if isinstance(value, dict) and "count" in value and "voices" in value
+    }
+
+
 def _count_synthetic_tasks(cfg: Config) -> int:
     total = 0
-    for head_cfg in cfg.data.intents.get("synthetic", {}).values():
+    for head_cfg in _synthetic_head_configs(cfg).values():
         total += int(head_cfg["count"]) * len(tuple(head_cfg["voices"]))
     return total
 

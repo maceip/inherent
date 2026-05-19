@@ -74,6 +74,7 @@ def test_synthesize_uses_openf5_cli_and_writes_manifest(tmp_path, monkeypatch):
         "_normalize_wav",
         lambda input_path, output_path: output_path.write_bytes(input_path.read_bytes()),
     )
+    monkeypatch.setattr(synthesis, "augment_wav_file", lambda path, **kwargs: path)
 
     class FakeRuntime:
         def __init__(self, runtime_model_files):
