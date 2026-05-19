@@ -21,8 +21,20 @@ LOG_FILE="${LOG_DIR}/synthetic_remote.log"
 
 mkdir -p "$LOG_DIR" data
 
+PYTHON=""
+for candidate in python3.12 python3.11 python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PYTHON="$candidate"
+    break
+  fi
+done
+if [[ -z "$PYTHON" ]]; then
+  echo "No python3 found" >&2
+  exit 1
+fi
+
 if [[ ! -d .venv ]]; then
-  python3 -m venv .venv
+  "$PYTHON" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
