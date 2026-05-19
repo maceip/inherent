@@ -4,180 +4,198 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Inherent browser mic demo</title>
-    <link rel="stylesheet" href="./browser-demo/styles.css?v=e06be33">
+    <link rel="stylesheet" href="./browser-demo/styles.css?v=dojo-20260519">
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   </head>
   <body>
-    <div class="theme-backdrop" aria-hidden="true"></div>
     <main class="shell compact-shell">
-      <section class="record-console" aria-labelledby="recordTitle">
-        <div class="record-copy">
-          <p class="eyebrow">Inherent chop-chop mic dojo</p>
-          <h1 id="recordTitle">Speak. Watch the heads hit.</h1>
-          <p>
-            The bundled ONNX model loads with the page. Press record and the
-            browser mic flows straight into the live oscilloscope and intent
-            heads.
-          </p>
-        </div>
-
-        <div class="record-toolbar" aria-label="Microphone controls">
-          <button id="startRecording" type="button" disabled>Record</button>
-          <button id="stopRecording" type="button" class="danger" disabled>Stop</button>
-          <span id="runtimeBadge" class="badge">Model: loading</span>
-          <span id="recordingBadge" class="badge">Mic: idle</span>
-        </div>
-
-        <div id="modelLoader" class="model-loader" aria-live="polite">
-          <div class="model-loader-top">
-            <strong>Loading bundled model</strong>
-            <span id="modelProgressText">Starting...</span>
+      <section id="dojoScrollScene" class="dojo-scroll-scene" aria-labelledby="recordTitle">
+        <div class="dojo-scroll-sticky">
+          <div class="dojo-stage" aria-hidden="true">
+            <div class="dojo-frame">
+              <img class="dojo-plate" src="./browser-demo/assets/dojo-clean-background.webp?v=dojo-20260519" alt="">
+              <canvas id="dojoOnionSprite" class="dojo-sprite dojo-sprite-onion" width="390" height="508"></canvas>
+              <canvas id="dojoParappaSprite" class="dojo-sprite dojo-sprite-parappa" width="520" height="520"></canvas>
+              <div id="scrollCue" class="scroll-cue">Scroll</div>
+            </div>
           </div>
-          <div class="model-progress" role="progressbar" aria-label="Model loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <span id="modelProgressFill"></span>
-          </div>
-        </div>
 
-        <div class="meter" aria-label="Input level">
-          <span id="levelFill"></span>
-        </div>
-        <div class="scope-wrap">
-          <div class="scope-label">
-            <span>live oscilloscope</span>
-            <span id="modelStatus">Loading bundled model...</span>
-          </div>
-          <canvas id="scope" width="960" height="148" aria-label="Live microphone oscilloscope"></canvas>
-        </div>
-        <p id="recordingStatus" class="status">The model is loading. Recording unlocks automatically when it is ready.</p>
-      </section>
-
-      <section class="panel flow-panel">
-        <svg id="signalPath" class="signal-path" aria-hidden="true">
-          <path id="signalTrace"></path>
-        </svg>
-        <span id="signalDroplet" class="signal-droplet" aria-hidden="true"></span>
-
-        <div class="panel-heading">
-          <div>
-            <h2>Audio flow</h2>
-            <p>Live audio flows from mic to mel frames, through the gate, then branches into the 12 intent heads.</p>
-          </div>
-          <span id="inferenceBadge" class="badge">Inference: idle</span>
-        </div>
-
-        <div class="flow-route" aria-label="Audio flow from microphone to model heads">
-          <div class="flow-step active">
-            <span class="flow-icon">|_|</span>
-            <strong>mic</strong>
-            <small>raw PCM</small>
-          </div>
-          <span class="flow-arrow">-&gt;</span>
-          <div class="flow-step">
-            <span class="flow-icon">~~~</span>
-            <strong>mel</strong>
-            <small>128 bins</small>
-          </div>
-          <span class="flow-arrow">-&gt;</span>
-          <div class="flow-step gate-step">
-            <span class="flow-icon">{}</span>
-            <strong>gate</strong>
-            <small id="gateScore">waiting</small>
-          </div>
-          <span class="flow-arrow">-&gt;</span>
-          <div class="flow-step heads-step">
-            <span class="flow-icon">{}</span>
-            <strong>heads</strong>
-            <small>intent hits</small>
-          </div>
-        </div>
-
-        <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
-
-        <details id="routeLabeler" class="route-labeler">
-          <summary class="route-labeler-heading">
-            <div>
-              <h3 id="routeLabelTitle">Donate labeled speech from the route</h3>
+          <section id="micDock" class="record-console mic-dock" aria-labelledby="recordTitle">
+            <div class="record-copy">
+              <p class="eyebrow">Inherent chop-chop mic dojo</p>
+              <h1 id="recordTitle">Turn on mic. Watch heads hit.</h1>
               <p>
-                Open this drawer to reveal the chunky per-head donation buttons
-                and export locally saved JSONL.
+                The bundled ONNX model loads with the page. Speak once and the
+                mic signal, gate, and intent heads update in the same working view.
               </p>
             </div>
-            <span id="feedbackCount" class="badge">0 saved</span>
-          </summary>
 
-          <div class="feedback-grid route-feedback-grid">
-            <fieldset>
-              <legend>Label mode</legend>
-              <label class="radio-row">
-                <input type="radio" name="feedbackKind" value="positive" checked>
-                Positive: this head should fire
-              </label>
-              <label class="radio-row">
-                <input type="radio" name="feedbackKind" value="negative">
-                Negative: this head should not fire
-              </label>
-            </fieldset>
+            <div class="record-toolbar" aria-label="Microphone controls">
+              <button id="startRecording" type="button" disabled>Record</button>
+              <button id="stopRecording" type="button" class="danger" disabled>Stop</button>
+              <span id="runtimeBadge" class="badge">Model: loading</span>
+              <span id="recordingBadge" class="badge">Mic: idle</span>
+            </div>
 
-            <label>
-              Labeled utterance text or note
-              <textarea id="feedbackTranscript" rows="3" maxlength="240" placeholder="Example: add milk to my shopping list"></textarea>
-            </label>
-          </div>
+            <div class="mic-telemetry">
+              <div id="modelLoader" class="model-loader" aria-live="polite">
+                <div class="model-loader-top">
+                  <strong>Loading bundled model</strong>
+                  <span id="modelProgressText">Starting...</span>
+                </div>
+                <div class="model-progress" role="progressbar" aria-label="Model loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <span id="modelProgressFill"></span>
+                </div>
+              </div>
 
-          <div class="audio-tag-strip" aria-label="Training audio tags we need">
-            <span class="audio-tag-node">Per-head positive</span>
-            <span class="audio-tag-node">Interesting / no intent</span>
-            <span class="audio-tag-node">Hard speech negative</span>
-            <span class="audio-tag-node">Non-speech negative</span>
-            <span class="audio-tag-node">Confuser negative</span>
-            <span class="audio-tag-node">Ambiguous / review</span>
-          </div>
+              <div class="meter" aria-label="Input level">
+                <span id="levelFill"></span>
+              </div>
 
-          <label class="consent-row">
-            <input id="feedbackConsent" type="checkbox">
-            I confirm this is my own recording and can be used to improve the training set.
-          </label>
+              <div class="scope-wrap">
+                <div class="scope-label">
+                  <span>live oscilloscope</span>
+                  <span id="modelStatus">Loading bundled model...</span>
+                </div>
+                <canvas id="scope" width="960" height="148" aria-label="Live microphone oscilloscope"></canvas>
+              </div>
+            </div>
+            <p id="recordingStatus" class="status">The model is loading. Recording unlocks automatically when it is ready.</p>
 
-          <div class="quality-card">
-            <strong>Light validation gates</strong>
-            <ul id="qualityGates" class="quality-gates" aria-live="polite">
-              <li>Record a short clip after the model is ready.</li>
-            </ul>
-          </div>
+            <div class="mic-output-panels">
+              <section class="panel flow-panel">
+                <svg id="signalPath" class="signal-path" aria-hidden="true">
+                  <path id="signalTrace"></path>
+                </svg>
+                <span id="signalDroplet" class="signal-droplet" aria-hidden="true"></span>
 
-          <div class="actions">
-            <button id="downloadFeedback" type="button" class="secondary">Download JSONL</button>
-            <button id="clearFeedback" type="button" class="danger">Clear saved</button>
-          </div>
-          <p id="feedbackStatus" class="status">Record a clip, then press a head's donate button. Saved examples stay in this browser until exported.</p>
-        </details>
-      </section>
+                <div class="panel-heading">
+                  <div>
+                    <h2>Audio flow</h2>
+                    <p>Mic signal, mel frames, gate, and head hits stay together so changes are visible immediately.</p>
+                  </div>
+                  <span id="inferenceBadge" class="badge">Inference: idle</span>
+                </div>
 
-      <section class="panel result-panel">
-        <div class="panel-heading">
-          <div>
-            <h2>Matched head</h2>
-            <p>Scores are compared against the bundled model metadata thresholds.</p>
-          </div>
+                <div class="flow-route" aria-label="Audio flow from microphone to model heads">
+                  <div class="flow-step active">
+                    <span class="flow-icon">|_|</span>
+                    <strong>mic</strong>
+                    <small>raw PCM</small>
+                  </div>
+                  <span class="flow-arrow">-&gt;</span>
+                  <div class="flow-step">
+                    <span class="flow-icon">~~~</span>
+                    <strong>mel</strong>
+                    <small>128 bins</small>
+                  </div>
+                  <span class="flow-arrow">-&gt;</span>
+                  <div class="flow-step gate-step">
+                    <span class="flow-icon">{}</span>
+                    <strong>gate</strong>
+                    <small id="gateScore">waiting</small>
+                  </div>
+                  <span class="flow-arrow">-&gt;</span>
+                  <div class="flow-step heads-step">
+                    <span class="flow-icon">{}</span>
+                    <strong>heads</strong>
+                    <small>intent hits</small>
+                  </div>
+                </div>
+
+                <div id="flowHeads" class="flow-heads" aria-live="polite"></div>
+
+                <details id="routeLabeler" class="route-labeler">
+                  <summary class="route-labeler-heading">
+                    <div>
+                      <h3 id="routeLabelTitle">Donate labeled speech from the route</h3>
+                      <p>
+                        Open this drawer to reveal the per-head donation buttons and
+                        export locally saved JSONL.
+                      </p>
+                    </div>
+                    <span id="feedbackCount" class="badge">0 saved</span>
+                  </summary>
+
+                <div class="feedback-grid route-feedback-grid">
+                  <fieldset>
+                    <legend>Label mode</legend>
+                    <label class="radio-row">
+                      <input type="radio" name="feedbackKind" value="positive" checked>
+                      Positive: this head should fire
+                    </label>
+                    <label class="radio-row">
+                      <input type="radio" name="feedbackKind" value="negative">
+                      Negative: this head should not fire
+                    </label>
+                  </fieldset>
+
+                  <label>
+                    Labeled utterance text or note
+                    <textarea id="feedbackTranscript" rows="3" maxlength="240" placeholder="Example: add milk to my shopping list"></textarea>
+                  </label>
+                </div>
+
+                <div class="audio-tag-strip" aria-label="Training audio tags we need">
+                  <span class="audio-tag-node">Per-head positive</span>
+                  <span class="audio-tag-node">Interesting / no intent</span>
+                  <span class="audio-tag-node">Hard speech negative</span>
+                  <span class="audio-tag-node">Non-speech negative</span>
+                  <span class="audio-tag-node">Confuser negative</span>
+                  <span class="audio-tag-node">Ambiguous / review</span>
+                </div>
+
+                <label class="consent-row">
+                  <input id="feedbackConsent" type="checkbox">
+                  I confirm this is my own recording and can be used to improve the training set.
+                </label>
+
+                <div class="quality-card">
+                  <strong>Light validation gates</strong>
+                  <ul id="qualityGates" class="quality-gates" aria-live="polite">
+                    <li>Record a short clip after the model is ready.</li>
+                  </ul>
+                </div>
+
+                <div class="actions">
+                  <button id="downloadFeedback" type="button" class="secondary">Download JSONL</button>
+                  <button id="clearFeedback" type="button" class="danger">Clear saved</button>
+                </div>
+                <p id="feedbackStatus" class="status">Record a clip, then press a head's donate button. Saved examples stay in this browser until exported.</p>
+                </details>
+              </section>
+
+              <section class="panel result-panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Matched head</h2>
+                    <p>Scores are compared against the bundled model metadata thresholds.</p>
+                  </div>
+                </div>
+
+                <div id="bestMatch" class="best-match">
+                  <span class="label">No inference yet</span>
+                  <strong>--</strong>
+                  <span class="score">--</span>
+                </div>
+
+                <div id="heads" class="heads" aria-live="polite"></div>
+              </section>
+            </div>
+          </section>
         </div>
-
-        <div id="bestMatch" class="best-match">
-          <span class="label">No inference yet</span>
-          <strong>--</strong>
-          <span class="score">--</span>
-        </div>
-
-        <div id="heads" class="heads" aria-live="polite"></div>
       </section>
 
-      <section class="panel backend-panel">
-        <h2>Runtime</h2>
-        <p>
-          This page ships with a same-origin ONNX model at
-          <code>assets/inherent.onnx</code>. ONNX Runtime Web loads it with
-          WebGPU when available and falls back to WASM.
-        </p>
-      </section>
+      <div class="dashboard-grid">
+        <section class="panel backend-panel">
+          <h2>Runtime</h2>
+          <p>
+            This page ships with a same-origin ONNX model at
+            <code>assets/inherent.onnx</code>. ONNX Runtime Web loads it with
+            WebGPU when available and falls back to WASM.
+          </p>
+        </section>
+      </div>
     </main>
 
     <template id="headTemplate">
@@ -203,6 +221,6 @@
       </article>
     </template>
 
-    <script src="./browser-demo/app.js?v=e06be33"></script>
+    <script src="./browser-demo/app.js?v=dojo-20260519"></script>
   </body>
 </html>

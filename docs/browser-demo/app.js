@@ -3,6 +3,22 @@
 const ORT_CDN_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
 const DEFAULT_MODEL_URL = "./assets/inherent.onnx";
 const DEFAULT_METADATA_URL = "./assets/inherent.onnx.metadata.json";
+const DOJO_SPRITES = {
+  onion: {
+    src: "./browser-demo/assets/dojo-onion-spritesheet.webp?v=dojo-20260519",
+    columns: 13,
+    frameWidth: 390,
+    frameHeight: 508,
+    frameCount: 104,
+  },
+  parappa: {
+    src: "./browser-demo/assets/dojo-parappa-spritesheet.webp?v=dojo-20260519",
+    columns: 6,
+    frameWidth: 520,
+    frameHeight: 520,
+    frameCount: 10,
+  },
+};
 const FEEDBACK_STORAGE_KEY = "inherent.browserDemo.feedbackExamples";
 const SAMPLE_RATE = 16000;
 const MAX_SECONDS = 60;
@@ -93,13 +109,20 @@ const dom = {
   metadataFile: document.getElementById("metadataFile"),
   loadModel: document.getElementById("loadModel"),
   resetDemo: document.getElementById("resetDemo"),
+  dojoScrollScene: document.getElementById("dojoScrollScene"),
+  dojoOnionSprite: document.getElementById("dojoOnionSprite"),
+  dojoParappaSprite: document.getElementById("dojoParappaSprite"),
+  micDock: document.getElementById("micDock"),
+  scrollCue: document.getElementById("scrollCue"),
   startRecording: document.getElementById("startRecording"),
   stopRecording: document.getElementById("stopRecording"),
   modelStatus: document.getElementById("modelStatus"),
+  micTelemetry: document.querySelector(".mic-telemetry"),
   modelLoader: document.getElementById("modelLoader"),
   modelProgress: document.querySelector(".model-progress"),
   modelProgressFill: document.getElementById("modelProgressFill"),
   modelProgressText: document.getElementById("modelProgressText"),
+  scopeWrap: document.querySelector(".scope-wrap"),
   recordingStatus: document.getElementById("recordingStatus"),
   runtimeBadge: document.getElementById("runtimeBadge"),
   recordingBadge: document.getElementById("recordingBadge"),
@@ -135,8 +158,114 @@ renderFeedbackCount();
 updateQualityGates();
 drawIdleScope();
 updateSignalPath(null, false);
+initDojoScrollStage();
 wireEvents();
 autoLoadDefaultModel();
+
+function initDojoScrollStage() {
+  if (!dom.dojoScrollScene || !dom.dojoOnionSprite || !dom.dojoParappaSprite || !dom.micDock) {
+    return;
+  }
+
+  const onion = loadSpriteSheet(dom.dojoOnionSprite, DOJO_SPRITES.onion);
+  const parappa = loadSpriteSheet(dom.dojoParappaSprite, DOJO_SPRITES.parappa);
+  let pending = false;
+
+  const draw = () => {
+    pending = false;
+    const progress = dojoScrollProgress();
+    const compactStage = window.matchMedia("(max-width: 760px)").matches;
+    const reveal = smoothStep(0.08, 0.34, progress);
+    const frameProgress = smoothStep(0.10, 0.94, progress);
+    const micReveal = compactStage ? smoothStep(0.50, 0.64, progress) : smoothStep(0.34, 0.48, progress);
+    const spriteFadeStart = compactStage ? 0.68 : 0.58;
+    const spriteFadeEnd = compactStage ? 0.88 : 0.82;
+    const spriteVisibility = reveal * (1 - smoothStep(spriteFadeStart, spriteFadeEnd, progress) * 0.22);
+    const spriteDrop = Math.round(lerp(-18, 46, progress));
+
+    drawSpriteFrame(onion, frameProgress);
+    drawSpriteFrame(parappa, frameProgress);
+
+    dom.dojoOnionSprite.style.opacity = spriteVisibility.toFixed(3);
+    dom.dojoParappaSprite.style.opacity = spriteVisibility.toFixed(3);
+    dom.dojoOnionSprite.style.transform = `translateY(${spriteDrop}px) scale(${lerp(0.98, 1.02, reveal).toFixed(3)})`;
+    dom.dojoParappaSprite.style.transform = `translateY(${Math.round(spriteDrop * 0.72)}px) scale(${lerp(0.98, 1.015, reveal).toFixed(3)})`;
+
+    dom.micDock.style.opacity = micReveal.toFixed(3);
+    dom.micDock.style.transform = `translate(-50%, ${lerp(58, 0, micReveal).toFixed(1)}vh) scale(${lerp(0.98, 1, micReveal).toFixed(3)})`;
+    if (dom.scrollCue) {
+      dom.scrollCue.style.opacity = (1 - smoothStep(0.02, 0.18, progress)).toFixed(3);
+    }
+  };
+
+  const queue = () => {
+    if (pending) {
+      return;
+    }
+    pending = true;
+    window.requestAnimationFrame(draw);
+  };
+
+  onion.image.addEventListener("load", queue, { once: true });
+  parappa.image.addEventListener("load", queue, { once: true });
+  window.addEventListener("scroll", queue, { passive: true });
+  window.addEventListener("resize", queue);
+  queue();
+}
+
+function dojoScrollProgress() {
+  const rect = dom.dojoScrollScene.getBoundingClientRect();
+  const travel = Math.max(1, dom.dojoScrollScene.offsetHeight - window.innerHeight);
+  return clamp01(-rect.top / travel);
+}
+
+function loadSpriteSheet(canvas, options) {
+  const image = new Image();
+  image.src = options.src;
+  return {
+    canvas,
+    context: canvas.getContext("2d"),
+    image,
+    columns: options.columns,
+    frameWidth: options.frameWidth,
+    frameHeight: options.frameHeight,
+    frameCount: options.frameCount,
+  };
+}
+
+function drawSpriteFrame(sheet, progress) {
+  if (!sheet.image.complete || !sheet.image.naturalWidth) {
+    return;
+  }
+  const frame = Math.max(0, Math.min(sheet.frameCount - 1, Math.round(progress * (sheet.frameCount - 1))));
+  const sx = (frame % sheet.columns) * sheet.frameWidth;
+  const sy = Math.floor(frame / sheet.columns) * sheet.frameHeight;
+  sheet.context.clearRect(0, 0, sheet.canvas.width, sheet.canvas.height);
+  sheet.context.drawImage(
+    sheet.image,
+    sx,
+    sy,
+    sheet.frameWidth,
+    sheet.frameHeight,
+    0,
+    0,
+    sheet.canvas.width,
+    sheet.canvas.height,
+  );
+}
+
+function smoothStep(edge0, edge1, value) {
+  const x = clamp01((value - edge0) / (edge1 - edge0));
+  return x * x * (3 - 2 * x);
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lerp(start, end, amount) {
+  return start + (end - start) * amount;
+}
 
 function wireEvents() {
   if (dom.loadModel) {
@@ -911,6 +1040,8 @@ function updateSignalPath(head, hasSignal) {
 
 function updateModelProgress(percent, text, stateClass) {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const ready = stateClass === "ready";
+  const failed = stateClass === "failed";
   if (dom.modelProgressFill) {
     dom.modelProgressFill.style.width = `${clamped}%`;
   }
@@ -921,8 +1052,12 @@ function updateModelProgress(percent, text, stateClass) {
     dom.modelProgressText.textContent = `${clamped}% - ${text}`;
   }
   if (dom.modelLoader) {
-    dom.modelLoader.classList.toggle("ready", stateClass === "ready");
-    dom.modelLoader.classList.toggle("failed", stateClass === "failed");
+    dom.modelLoader.classList.toggle("ready", ready);
+    dom.modelLoader.classList.toggle("failed", failed);
+  }
+  if (dom.micTelemetry) {
+    dom.micTelemetry.classList.toggle("model-ready", ready);
+    dom.micTelemetry.classList.toggle("model-failed", failed);
   }
 }
 

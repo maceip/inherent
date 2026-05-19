@@ -68,26 +68,185 @@ input {
   font: inherit;
 }
 
-.theme-backdrop {
-  background:
-    linear-gradient(180deg, rgba(250, 9, 0, 0.08), rgba(250, 9, 0, 0.42)),
-    url("./assets/theme-reference.svg") center top / min(1260px, 100vw) auto no-repeat;
-  inset: 0 0 auto;
-  min-height: min(64vw, 720px);
-  opacity: 0.46;
-  pointer-events: none;
-  position: fixed;
-  z-index: -2;
-}
-
 .shell {
   margin: 0 auto;
-  padding: 16px 0 36px;
-  width: min(1220px, calc(100vw - 20px));
+  padding: 0 0 36px;
+  width: 100%;
 }
 
 .compact-shell {
-  padding-top: 14px;
+  padding-top: 0;
+}
+
+.dojo-scroll-scene {
+  min-height: 188vh;
+  position: relative;
+}
+
+.dojo-scroll-sticky {
+  min-height: 100vh;
+  overflow: hidden;
+  position: sticky;
+  top: 0;
+}
+
+.dojo-stage {
+  background:
+    linear-gradient(180deg, rgba(8, 9, 20, 0.28), transparent 22%, transparent 72%, rgba(8, 9, 20, 0.22)),
+    var(--dojo-yellow);
+  inset: 0;
+  position: absolute;
+}
+
+.dojo-frame {
+  aspect-ratio: 1920 / 1443;
+  height: min(100vh, calc(100vw * 1443 / 1920));
+  left: 50%;
+  min-height: 720px;
+  min-width: min(100vw, calc(100vh * 1920 / 1443));
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1.02);
+  transform-origin: center center;
+  width: min(100vw, calc(100vh * 1920 / 1443));
+}
+
+.dojo-plate {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.dojo-sprite {
+  display: block;
+  filter: drop-shadow(0 14px 8px rgba(8, 9, 20, 0.26));
+  height: auto;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  will-change: opacity, transform;
+}
+
+.dojo-sprite-onion {
+  left: 3.4%;
+  top: 4%;
+  width: 49%;
+}
+
+.dojo-sprite-parappa {
+  left: 50%;
+  top: 28.5%;
+  width: 38%;
+}
+
+.scroll-cue {
+  align-items: center;
+  background: var(--paper);
+  border: 5px solid var(--line);
+  border-radius: 999px;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  box-shadow: 7px 7px 0 rgba(8, 9, 20, 0.24);
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 900;
+  left: 50%;
+  min-height: 44px;
+  padding: 8px 16px;
+  position: absolute;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  transition: opacity 140ms linear;
+}
+
+.scroll-cue::after {
+  border-bottom: 4px solid var(--line);
+  border-right: 4px solid var(--line);
+  content: "";
+  height: 10px;
+  margin-left: 10px;
+  transform: rotate(45deg) translateY(-3px);
+  width: 10px;
+}
+
+.mic-dock {
+  align-items: start;
+  bottom: clamp(12px, 3vh, 28px);
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: minmax(250px, 0.62fr) minmax(360px, 1fr);
+  left: 50%;
+  margin: 0;
+  max-height: calc(100vh - 24px);
+  opacity: 0;
+  overflow: auto;
+  position: absolute;
+  transform: translate(-50%, 58vh) scale(0.98);
+  width: min(1160px, calc(100vw - 24px));
+  z-index: 4;
+}
+
+.mic-dock .record-copy {
+  grid-column: 1;
+  max-width: none;
+}
+
+.mic-dock .record-toolbar {
+  grid-column: 1;
+}
+
+.mic-dock .mic-telemetry {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+.mic-telemetry {
+  display: grid;
+  gap: 8px;
+}
+
+.mic-telemetry .model-loader,
+.mic-telemetry .meter,
+.mic-telemetry .scope-wrap {
+  margin-top: 0;
+}
+
+.mic-dock .status {
+  grid-column: 1;
+  margin-top: 0;
+}
+
+.mic-dock #scope {
+  height: 96px;
+}
+
+.mic-output-panels {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
+}
+
+.dashboard-grid {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+  margin: 14px auto 0;
+  width: min(760px, calc(100vw - 20px));
+}
+
+.flow-panel {
+  grid-column: 1;
+}
+
+.result-panel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.backend-panel {
+  grid-column: 1;
 }
 
 .record-console {
@@ -96,7 +255,7 @@ input {
     linear-gradient(180deg, rgba(255, 255, 255, 0.76), transparent 42%),
     var(--paper);
   border: 7px solid var(--line);
-  border-radius: 28px;
+  border-radius: 20px;
   box-shadow: 12px 12px 0 var(--shadow);
   margin: 0 auto 12px 0;
   max-width: 100%;
@@ -108,12 +267,24 @@ input {
 }
 
 .record-copy h1 {
-  font-size: clamp(1.85rem, 5vw, 3.6rem);
+  font-size: clamp(2rem, 2.65rem, 2.9rem);
   margin-bottom: 8px;
+}
+
+.mic-dock .record-copy h1 {
+  font-size: clamp(1.55rem, 2.15vw, 2.2rem);
+  line-height: 0.96;
+  margin-bottom: 4px;
 }
 
 .record-copy p:not(.eyebrow) {
   margin-bottom: 8px;
+}
+
+.mic-dock .record-copy p:not(.eyebrow) {
+  font-size: 0.9rem;
+  line-height: 1.22;
+  margin-bottom: 0;
 }
 
 .record-toolbar {
@@ -131,7 +302,7 @@ input {
 .model-loader {
   background: rgba(255, 248, 223, 0.82);
   border: 5px solid var(--line);
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: 6px 6px 0 rgba(8, 9, 20, 0.18);
   margin-top: 10px;
   padding: 8px 10px;
@@ -144,6 +315,18 @@ input {
 .model-loader.failed {
   background: rgba(255, 77, 36, 0.86);
   color: var(--paper);
+}
+
+.mic-telemetry.model-ready .model-loader {
+  display: none;
+}
+
+.mic-telemetry .scope-wrap {
+  display: none;
+}
+
+.mic-telemetry.model-ready .scope-wrap {
+  display: block;
 }
 
 .model-loader-top {
@@ -248,16 +431,16 @@ p {
 }
 
 h1 {
-  font-size: clamp(2.4rem, 7vw, 5.9rem);
-  letter-spacing: -0.075em;
+  font-size: clamp(2.1rem, 4rem, 4.35rem);
+  letter-spacing: 0;
   line-height: 0.86;
   margin-bottom: 18px;
   text-transform: uppercase;
 }
 
 h2 {
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  letter-spacing: -0.035em;
+  font-size: clamp(1.25rem, 1.75rem, 2rem);
+  letter-spacing: 0;
   line-height: 0.95;
   margin-bottom: 6px;
   text-transform: uppercase;
@@ -427,7 +610,7 @@ button:disabled {
   font-size: 0.8rem;
   font-weight: 900;
   justify-content: space-between;
-  letter-spacing: 0.12em;
+  letter-spacing: 0;
   padding: 6px 10px;
   text-transform: uppercase;
 }
@@ -506,7 +689,7 @@ button:disabled {
 .flow-heads {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
 .flow-head {
@@ -547,6 +730,80 @@ button:disabled {
   font-size: 0.68rem;
   min-width: 3.35rem;
   text-align: right;
+}
+
+.mic-dock .panel {
+  border-width: 4px;
+  border-radius: 14px;
+  box-shadow: 5px 5px 0 rgba(8, 9, 20, 0.2);
+  margin: 0;
+  padding: 10px;
+}
+
+.mic-dock .panel-heading {
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mic-dock .panel-heading p {
+  display: none;
+}
+
+.mic-dock .panel h2 {
+  font-size: 1rem;
+}
+
+.mic-dock .flow-route {
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.mic-dock .flow-step {
+  border-width: 3px;
+  border-radius: 10px;
+  box-shadow: none;
+  min-height: 44px;
+  padding: 5px 6px;
+}
+
+.mic-dock .flow-icon {
+  font-size: 0.9rem;
+  margin-bottom: 2px;
+}
+
+.mic-dock .flow-step strong {
+  font-size: 0.75rem;
+}
+
+.mic-dock .flow-step small {
+  font-size: 0.66rem;
+}
+
+.mic-dock .flow-arrow {
+  font-size: 1rem;
+}
+
+.mic-dock .flow-heads,
+.mic-dock .heads {
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 124px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.mic-dock .flow-head {
+  border-width: 3px;
+  border-radius: 10px;
+  box-shadow: none;
+  gap: 4px;
+  min-height: 0;
+  padding: 6px;
+}
+
+.mic-dock .donate-head-button,
+.mic-dock .route-labeler {
+  display: none;
 }
 
 .node-light {
@@ -702,8 +959,8 @@ body:not(.labeler-open) .donate-head-button {
 }
 
 .route-labeler h3 {
-  font-size: clamp(1rem, 2vw, 1.35rem);
-  letter-spacing: -0.04em;
+  font-size: clamp(1rem, 1.2rem, 1.35rem);
+  letter-spacing: 0;
   line-height: 0.95;
   margin: 0 0 6px;
   text-transform: uppercase;
@@ -754,7 +1011,7 @@ body:not(.labeler-open) .donate-head-button {
   display: grid;
   gap: 8px;
   margin-bottom: 18px;
-  padding: 20px;
+  padding: 16px;
 }
 
 .best-match .label,
@@ -765,10 +1022,23 @@ body:not(.labeler-open) .donate-head-button {
 }
 
 .best-match strong {
-  font-size: clamp(2.2rem, 8vw, 4.7rem);
-  letter-spacing: -0.06em;
+  font-size: clamp(2rem, 3.65rem, 4.2rem);
+  letter-spacing: 0;
   line-height: 0.9;
   text-transform: uppercase;
+}
+
+.mic-dock .best-match {
+  border-width: 4px;
+  border-radius: 14px;
+  box-shadow: none;
+  gap: 5px;
+  margin-bottom: 8px;
+  padding: 10px;
+}
+
+.mic-dock .best-match strong {
+  font-size: clamp(1.35rem, 2.5vw, 2.2rem);
 }
 
 .heads {
@@ -784,6 +1054,12 @@ body:not(.labeler-open) .donate-head-button {
   padding: 14px;
 }
 
+.mic-dock .head-card {
+  border-width: 3px;
+  border-radius: 10px;
+  padding: 8px;
+}
+
 .head-card.matched {
   background: var(--hit);
   box-shadow: 0 0 0 6px rgba(96, 255, 127, 0.25);
@@ -795,6 +1071,16 @@ body:not(.labeler-open) .donate-head-button {
   gap: 10px;
   justify-content: space-between;
   margin-bottom: 10px;
+}
+
+.mic-dock .head-label {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mic-dock .head-label strong,
+.mic-dock .head-label span {
+  font-size: 0.72rem;
 }
 
 .head-label strong {
@@ -809,6 +1095,10 @@ body:not(.labeler-open) .donate-head-button {
 
 .bar {
   height: 14px;
+}
+
+.mic-dock .bar {
+  height: 10px;
 }
 
 .quality-card {
@@ -965,6 +1255,18 @@ code {
 }
 
 @media (max-width: 920px) {
+  .dashboard-grid,
+  .mic-output-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-panel,
+  .result-panel,
+  .backend-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .hero {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -975,7 +1277,6 @@ code {
   }
 
   .flow-route,
-  .flow-heads,
   .feedback-grid {
     grid-template-columns: 1fr;
   }
@@ -987,6 +1288,72 @@ code {
 }
 
 @media (max-width: 760px) {
+  .dojo-scroll-scene {
+    min-height: 176vh;
+  }
+
+  .dojo-frame {
+    min-height: 620px;
+    min-width: 826px;
+  }
+
+  .dojo-sprite-onion {
+    left: 15%;
+    top: 8%;
+    width: 42%;
+  }
+
+  .dojo-sprite-parappa {
+    left: 41%;
+    top: 31%;
+    width: 33%;
+  }
+
+  .mic-dock {
+    bottom: 10px;
+    grid-template-columns: 1fr;
+    width: min(720px, calc(100vw - 16px));
+  }
+
+  .mic-dock .record-copy,
+  .mic-dock .record-toolbar,
+  .mic-dock .mic-telemetry,
+  .mic-dock .mic-output-panels,
+  .mic-dock .status {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .record-copy h1 {
+    font-size: clamp(1.75rem, 2.05rem, 2.25rem);
+    line-height: 0.94;
+  }
+
+  .mic-dock .record-copy p:not(.eyebrow) {
+    display: none;
+  }
+
+  .record-copy p:not(.eyebrow),
+  .model-loader,
+  .status {
+    font-size: 0.9rem;
+  }
+
+  .scope-label {
+    align-items: flex-start;
+    display: grid;
+    gap: 2px;
+  }
+
+  #scope {
+    height: 92px;
+  }
+
+  .mic-dock .flow-heads,
+  .mic-dock .heads {
+    max-height: 104px;
+  }
+
   .grid.two,
   .backend-table [role="row"] {
     grid-template-columns: 1fr;
@@ -1000,5 +1367,13 @@ code {
   .hero-card,
   .panel {
     box-shadow: 7px 7px 0 var(--shadow);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dojo-sprite,
+  .scroll-cue,
+  .mic-dock {
+    transition: none;
   }
 }

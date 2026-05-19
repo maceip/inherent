@@ -2,9 +2,10 @@
 
 The GitHub Pages app is served from the repository's `docs/` root. The
 browser interface itself lives at `docs/index.html`; this directory keeps the
-supporting JavaScript, CSS, theme asset, and compatibility redirect for the
-old `/browser-demo/` URL. The page auto-loads the bundled ONNX model from
-`docs/assets/` on startup, so visitors land directly on the record toolbar.
+supporting JavaScript, CSS, reviewed motion assets, and compatibility redirect
+for the old `/browser-demo/` URL. The page auto-loads the bundled ONNX model
+from `docs/assets/` on startup, then reveals the record toolbar from the
+scroll-led hero.
 
 ## Browser backend support
 
@@ -26,11 +27,12 @@ TFLite frontend for your model.
 
 ## Page theme and live UI
 
-The page uses the supplied dojo/arcade frame as its art direction: red walls,
-yellow-green floor lanes, pink/purple trim, chunky outlined cards, and a
-hand-drawn theme reference at `browser-demo/assets/theme-reference.svg`.
-Replace that SVG with a production image asset if you want the exact uploaded
-frame served by GitHub Pages.
+The page uses the reviewed dojo clean plate and extracted character
+spritesheets as its art direction: red walls, yellow-green floor lanes,
+pink/purple trim, chunky outlined controls, and scroll-scrubbed character
+motion. The first viewport stays focused on the background and scroll cue; the
+characters and mic controls reveal together so the user sees cause and effect
+without jumping several panels down the page.
 
 While recording, the UI shows:
 

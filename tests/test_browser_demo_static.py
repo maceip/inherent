@@ -30,7 +30,16 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert 'href="../"' in legacy_index
     assert "onnxruntime-web" in root_index
     assert "assets/inherent.onnx" in root_index
-    assert "./assets/theme-reference.svg" in styles
+    assert "dojo-clean-background.webp" in root_index
+    assert "dojo-onion-spritesheet.webp" in app
+    assert "dojo-parappa-spritesheet.webp" in app
+    assert "theme-reference.svg" not in styles
+    assert 'id="dojoScrollScene"' in root_index
+    assert 'id="dojoOnionSprite"' in root_index
+    assert 'id="dojoParappaSprite"' in root_index
+    assert 'id="micDock"' in root_index
+    assert 'id="scrollCue"' in root_index
+    assert "initDojoScrollStage" in app
     assert 'id="scope"' in root_index
     assert 'height="148"' in root_index
     assert 'id="signalPath"' in root_index
@@ -78,6 +87,10 @@ def test_browser_demo_loads_onnx_runtime_web_and_default_assets():
     assert "renderFeedbackHeads" not in app
     assert (DOCS_DIR / "assets" / "inherent.onnx").is_file()
     assert (DOCS_DIR / "assets" / "inherent.onnx.metadata.json").is_file()
+    assert (DEMO_DIR / "assets" / "dojo-clean-background.webp").is_file()
+    assert (DEMO_DIR / "assets" / "dojo-onion-spritesheet.webp").is_file()
+    assert (DEMO_DIR / "assets" / "dojo-parappa-spritesheet.webp").is_file()
+    assert not (DEMO_DIR / "assets" / "theme-reference.svg").exists()
 
 
 def test_browser_demo_embeds_runtime_head_order():
