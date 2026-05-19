@@ -27,10 +27,10 @@ dependencies = [
 
 [project.optional-dependencies]
 tts = [
-    # CLI runner only; set INHERENT_OPENF5_MODEL=mrfakename/OpenF5-TTS-Base
-    # or a vetted local OpenF5 path before synthesis. OpenVoice/CosyVoice voice
-    # references are external data inputs, not installed through this package.
+    # OpenF5: set INHERENT_OPENF5_MODEL=mrfakename/OpenF5-TTS-Base or data/openf5.
     "f5-tts>=0.6",
+    # Supertonic 3: set synthetic_tts_engine: supertonic-3 in config (remote-friendly).
+    "supertonic>=3.0",
 ]
 dev = [
     "pytest>=8.0",

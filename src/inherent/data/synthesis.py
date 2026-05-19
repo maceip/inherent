@@ -42,6 +42,7 @@ from typing import Iterator, NamedTuple
 from .. import INTENT_HEAD_ORDER
 from ..features.frontend import SAMPLE_RATE
 from .mic_augment import augment_wav_file, mic_augment_enabled, parse_snr_db_range
+from .tts_engines import OPENF5_TTS_ENGINE, SUPERTONIC_TTS_ENGINE, SUPPORTED_TTS_ENGINES
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,6 @@ SYNTHETIC_HEADS = (
 DEFAULT_VOICES = ("openvoice", "cosyvoice2")
 DEFAULT_TTS_VOICE_DIR = Path("data/tts_voices")
 OPENF5_TTS_COMMAND = "f5-tts_infer-cli"
-OPENF5_TTS_ENGINE = "openf5-tts"
 OPENF5_MODEL_ENV = "INHERENT_OPENF5_MODEL"
 APPROVED_OPENF5_MODEL_IDS = ("mrfakename/OpenF5-TTS-Base",)
 DISALLOWED_TTS_MODEL_IDS = (
@@ -470,6 +470,7 @@ def synthesize(
     output_dir: Path,
     voices: Sequence[str] = DEFAULT_VOICES,
     *,
+    tts_engine: str = OPENF5_TTS_ENGINE,
     mic_augment: bool | None = None,
     mic_snr_db_range: tuple[float, float] | list[float] | None = None,
 ) -> list[SyntheticSample]:
@@ -479,6 +480,7 @@ def synthesize(
             head,
             output_dir,
             voices=voices,
+            tts_engine=tts_engine,
             mic_augment=mic_augment,
             mic_snr_db_range=mic_snr_db_range,
         )
@@ -490,21 +492,16 @@ def iter_synthesize(
     head: str,
     output_dir: Path,
     voices: Sequence[str] = DEFAULT_VOICES,
-    runtime: "_OpenF5Runtime | None" = None,
+    runtime: object | None = None,
     *,
+    tts_engine: str = OPENF5_TTS_ENGINE,
     mic_augment: bool | None = None,
     mic_snr_db_range: tuple[float, float] | list[float] | None = None,
 ) -> Iterator[SyntheticSample]:
-    """Render prompts with the approved OpenF5 model and return manifest rows.
+    """Render prompts and return manifest rows.
 
-    Voice references are strict on purpose. For each voice id, provide:
-
-      data/tts_voices/<voice_id>/ref.wav
-      data/tts_voices/<voice_id>/ref.txt
-
-    Override the root with INHERENT_TTS_VOICE_DIR when needed.
-    Set INHERENT_OPENF5_MODEL to `mrfakename/OpenF5-TTS-Base` or a vetted local
-    OpenF5 model path before synthesizing.
+    OpenF5 (`openf5-tts`): voice refs under data/tts_voices/<voice_id>/ref.{wav,txt}.
+    Supertonic (`supertonic-3`): preset voices via SUPERTONIC_VOICE_BY_ID in tts_engines.py.
     """
     if head not in SYNTHETIC_HEADS:
         raise ValueError(f"head {head!r} is not a TTS-only synthetic head")
@@ -514,19 +511,27 @@ def iter_synthesize(
         raise ValueError("cannot synthesize an empty prompt list")
     if not voices:
         raise ValueError("at least one voice id is required")
-    _require_openf5_cli()
+    if tts_engine not in SUPPORTED_TTS_ENGINES:
+        raise ValueError(f"unsupported tts_engine {tts_engine!r}")
     if runtime is None:
-        runtime = _OpenF5Runtime(_openf5_model_files())
+        from .tts_engines import create_tts_runtime
+
+        runtime = create_tts_runtime(tts_engine)
     use_mic_augment = mic_augment_enabled() if mic_augment is None else mic_augment
     snr_range = parse_snr_db_range(mic_snr_db_range)
 
     output_root = Path(output_dir).expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
-    voice_root = _voice_root()
+    voice_root = _voice_root() if tts_engine == OPENF5_TTS_ENGINE else None
+    if tts_engine == OPENF5_TTS_ENGINE:
+        _require_openf5_cli()
     total = len(prompts) * len(voices)
     completed = 0
     for voice_id in voices:
-        ref_audio, ref_text = _voice_reference(voice_root, voice_id)
+        ref_audio: Path | None = None
+        ref_text: str | None = None
+        if voice_root is not None:
+            ref_audio, ref_text = _voice_reference(voice_root, voice_id)
         for index, prompt in enumerate(prompts):
             normalized_prompt = _normalize_prompt(prompt)
             wav_path = _synthesize_one(
@@ -538,6 +543,7 @@ def iter_synthesize(
                 output_root=output_root,
                 index=index,
                 runtime=runtime,
+                tts_engine=tts_engine,
                 mic_augment=use_mic_augment,
                 mic_snr_db_range=snr_range,
             )
@@ -546,7 +552,7 @@ def iter_synthesize(
                 transcript=normalized_prompt,
                 head=head,
                 voice_id=voice_id,
-                tts_engine=OPENF5_TTS_ENGINE,
+                tts_engine=tts_engine,
             )
             completed += 1
             if total > 1 and (completed == 1 or completed % 100 == 0 or completed == total):
@@ -624,11 +630,12 @@ def _synthesize_one(
     prompt: str,
     head: str,
     voice_id: str,
-    ref_audio: Path,
-    ref_text: str,
+    ref_audio: Path | None,
+    ref_text: str | None,
     output_root: Path,
     index: int,
-    runtime: "_OpenF5Runtime",
+    runtime: object,
+    tts_engine: str,
     mic_augment: bool = False,
     mic_snr_db_range: tuple[float, float] = (10.0, 22.0),
 ) -> Path:
@@ -641,19 +648,28 @@ def _synthesize_one(
         shutil.rmtree(sample_dir)
     sample_dir.mkdir(parents=True)
     generated_path = sample_dir / "generated.wav"
-    runtime.synthesize_to_wav(
-        prompt=prompt,
-        ref_audio=ref_audio,
-        ref_text=ref_text,
-        output_path=generated_path,
-    )
-    if not generated_path.is_file():
-        raise RuntimeError(f"OpenF5 did not write expected output: {generated_path}")
-    normalized_path = sample_dir / "normalized.wav"
-    _normalize_wav(generated_path, normalized_path)
-    final_path.parent.mkdir(parents=True, exist_ok=True)
-    normalized_path.replace(final_path)
-    shutil.rmtree(sample_dir)
+    if tts_engine == OPENF5_TTS_ENGINE:
+        if ref_audio is None or ref_text is None:
+            raise ValueError("OpenF5 synthesis requires reference audio and text")
+        runtime.synthesize_to_wav(  # type: ignore[union-attr]
+            prompt=prompt,
+            ref_audio=ref_audio,
+            ref_text=ref_text,
+            output_path=generated_path,
+        )
+        if not generated_path.is_file():
+            raise RuntimeError(f"OpenF5 did not write expected output: {generated_path}")
+        normalized_path = sample_dir / "normalized.wav"
+        _normalize_wav(generated_path, normalized_path)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        normalized_path.replace(final_path)
+    elif tts_engine == SUPERTONIC_TTS_ENGINE:
+        runtime.synthesize_to_wav(prompt=prompt, voice_id=voice_id, output_path=final_path)  # type: ignore[union-attr]
+        if not final_path.is_file():
+            raise RuntimeError(f"supertonic did not write expected output: {final_path}")
+    else:
+        raise ValueError(f"unsupported tts_engine {tts_engine!r}")
+    shutil.rmtree(sample_dir, ignore_errors=True)
     if mic_augment:
         seed = int(hashlib.sha1(f"{head}:{voice_id}:{index}:{prompt}:mic".encode()).hexdigest()[:8], 16)
         augment_wav_file(final_path, snr_db_range=mic_snr_db_range, seed=seed)
@@ -661,6 +677,7 @@ def _synthesize_one(
 
 
 class _OpenF5Runtime:
+    engine = OPENF5_TTS_ENGINE
     def __init__(self, model_files: OpenF5ModelFiles) -> None:
         try:
             from f5_tts.infer.utils_infer import load_model, load_vocoder

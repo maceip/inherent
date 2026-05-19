@@ -126,13 +126,16 @@ def _build_synthetic_manifest(cfg: Config, data_root: Path, output_manifest: Pat
         return len(existing_rows)
 
     intents_cfg = cfg.data.intents
+    from inherent.data.tts_engines import create_tts_runtime, resolve_tts_engine
+
+    tts_engine = resolve_tts_engine(intents_cfg)
     mic_augment = intents_cfg.get("synthetic_mic_augment", True)
     mic_snr_db_range = intents_cfg.get("synthetic_mic_snr_db_range")
-    runtime = synthesis._OpenF5Runtime(synthesis._openf5_model_files())
+    runtime = create_tts_runtime(tts_engine)
     count = len(existing_rows)
     print(
         f"resuming synthetic manifest with {len(existing_rows)} existing rows; "
-        f"{remaining_tasks} remaining; mic_augment={mic_augment}",
+        f"{remaining_tasks} remaining; tts_engine={tts_engine}; mic_augment={mic_augment}",
         flush=True,
     )
     with partial_manifest.open("w", newline="") as f:
@@ -156,6 +159,7 @@ def _build_synthetic_manifest(cfg: Config, data_root: Path, output_manifest: Pat
                     output_dir,
                     voices=(voice_id,),
                     runtime=runtime,
+                    tts_engine=tts_engine,
                     mic_augment=mic_augment,
                     mic_snr_db_range=mic_snr_db_range,
                 )

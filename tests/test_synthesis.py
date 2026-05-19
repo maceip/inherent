@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from inherent.data import intents, synthesis
+from inherent.data.tts_engines import OPENF5_TTS_ENGINE
 from inherent.scripts import prep_data
 
 
@@ -93,6 +94,7 @@ def test_synthesize_uses_openf5_cli_and_writes_manifest(tmp_path, monkeypatch):
         "hasPhotoQuery",
         tmp_path / "audio",
         voices=("voice_a",),
+        tts_engine=OPENF5_TTS_ENGINE,
     )
     manifest = tmp_path / "synthetic.csv"
     count = synthesis.write_synthetic_manifest(samples, manifest)

@@ -1,0 +1,70 @@
+# Person + event synthetic TTS for a Linux CUDA box (Supertonic 3).
+# ~8000 prompts × 2 voices × 2 heads = 32,000 clips. Faster than OpenF5 on GPU/CPU.
+# Resume-safe: rsync data/synthetic_person_event_manifest.csv.partial + synthetic_audio/ first.
+model:
+  backbone: small_conformer
+  num_heads: 13
+  hidden_size: 256
+  num_layers: 6
+  num_attention_heads: 4
+  conv_kernel_size: 31
+  mel_bins: 128
+  max_frames: 3000
+
+data:
+  sample_rate: 16000
+  hop_ms: 20
+  mel_bins: 128
+  max_seconds: 60
+  directedness:
+    positives: []
+    negatives: []
+    positive_manifests: []
+    negative_manifests: []
+    labeled_manifests: []
+    max_public_samples_per_source: 1000
+    noise_mix: []
+    snr_db_range: [0, 25]
+  intents:
+    public_sources: []
+    recorded: []
+    synthetic_manifests: [synthetic_person_event_manifest.csv]
+    public: {}
+    synthetic_tts_engine: supertonic-3
+    synthetic_mic_augment: true
+    synthetic_mic_snr_db_range: [10, 22]
+    synthetic:
+      person_context: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+      event_context: { count: 8000, voices: ['openvoice', 'cosyvoice2'] }
+
+training:
+  batch_size: 32
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-2
+  warmup_steps: 1000
+  max_steps: 100000
+  eval_every_steps: 2000
+  save_every_steps: 2000
+  loss: focal_bce
+  focal_gamma: 2.0
+  class_weights: balanced
+  train_manifest: data/train_manifest.csv
+  eval_manifest: data/eval_manifest.csv
+  num_workers: 4
+  device: cuda
+  seed: 1337
+
+export:
+  backend: tflite
+  delegates: [cpu, gpu]
+  quantization: float16
+  representative_dataset_size: 500
+  target_size_mb: 50
+  output_path: artifacts/synthetic-person-event/inherent.tflite
+  metadata_path: artifacts/synthetic-person-event/inherent.metadata.json
+  require_tflite_parity: false
+
+eval:
+  held_out_audio_dir: data/eval_recorded
+  metrics: []
+  pass_threshold: {}
