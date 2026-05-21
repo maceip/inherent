@@ -42,4 +42,33 @@ python -m inherent.scripts.eval \
   --gate-json-out artifacts/model-groups/ec2-person-event-supertonic/eval_gates.json
 touch logs/ec2-person-event-supertonic.eval.done
 echo "[$(date -u +%FT%TZ)] eval done" >>logs/ec2-person-event-supertonic.status
-echo "[$(date -u +%FT%TZ)] pipeline complete" >>logs/ec2-person-event-supertonic.status
+
+echo "[$(date -u +%FT%TZ)] export production TFLite"
+CKPT_DIR="artifacts/model-groups/ec2-person-event-supertonic"
+PROD_DIR="artifacts/quality"
+python -m inherent.scripts.export \
+  --checkpoint "${CKPT_DIR}/best.pt" \
+  --config configs/production_quality.yaml \
+  --output-dir "${CKPT_DIR}/export/litert" \
+  --backend litert \
+  --delegate cpu
+mkdir -p "${PROD_DIR}"
+cp "${CKPT_DIR}/export/litert/inherent.tflite" "${PROD_DIR}/inherent.tflite"
+cp "${CKPT_DIR}/export/litert/inherent.metadata.json" "${PROD_DIR}/inherent.metadata.json"
+touch logs/ec2-person-event-supertonic.export_litert.done
+
+python - <<'PY'
+import numpy as np
+import tensorflow as tf
+i = tf.lite.Interpreter(model_path="artifacts/quality/inherent.tflite", num_threads=1)
+i.allocate_tensors()
+inp, out = i.get_input_details()[0], i.get_output_details()[0]
+x = np.zeros([1, 3000, 128], dtype=np.float32)
+i.set_tensor(inp["index"], x)
+i.invoke()
+y = i.get_tensor(out["index"])
+assert y.shape == (1, 13) and np.isfinite(y).all()
+print("acceptance ok", y.shape)
+PY
+touch logs/ec2-person-event-supertonic.acceptance.done
+echo "[$(date -u +%FT%TZ)] pipeline complete — production TFLite at artifacts/quality/" >>logs/ec2-person-event-supertonic.status
