@@ -10,15 +10,16 @@ LOG="${LOG:-logs/train_eval_person_event.log}"
 exec >>"$LOG" 2>&1
 
 echo "[$(date -u +%FT%TZ)] starting train"
-python - <<'PY'
+python - <<PY
+import os
 from pathlib import Path
 from inherent.config import Config
 from inherent.training.train import train
 
 cfg = Config.load("configs/production_quality.yaml")
-max_steps = int("${PERSON_EVENT_MAX_STEPS:-8000}")
+max_steps = int(os.environ.get("PERSON_EVENT_MAX_STEPS", "8000"))
 cfg.training.max_steps = max_steps
-cfg.training.batch_size = int("${PERSON_EVENT_BATCH_SIZE:-4}")
+cfg.training.batch_size = int(os.environ.get("PERSON_EVENT_BATCH_SIZE", "4"))
 cfg.training.eval_every_steps = min(2000, max(500, max_steps // 4))
 cfg.training.save_every_steps = cfg.training.eval_every_steps
 cfg.training.__post_init__()
